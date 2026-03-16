@@ -32,6 +32,12 @@ const envSchema = z
       .refine((value) => value.startsWith('postgresql://') || value.startsWith('postgres://'), {
         message: 'DATABASE_URL debe usar el esquema postgresql:// o postgres://',
       }),
+    DIRECT_DATABASE_URL: z
+      .string()
+      .refine((value) => value.startsWith('postgresql://') || value.startsWith('postgres://'), {
+        message: 'DIRECT_DATABASE_URL debe usar el esquema postgresql:// o postgres://',
+      })
+      .optional(),
     REDIS_URL: z
       .string()
       .refine((value) => value.startsWith('redis://') || value.startsWith('rediss://'), {

@@ -250,6 +250,33 @@ Write-Host "me: user=$($me.user.email)"
 $sessions = Invoke-Api -Method 'GET' -Url "$BaseUrl/api/sessions" -Body $null -Session $webSession
 Write-Host "sessions: count=$($sessions.items.Count)"
 
+$customer = Invoke-Api -Method 'POST' -Url "$BaseUrl/api/customers" -Body @{
+  name = 'Acme Smoke SA'
+  taxId = 'XAXX010101000'
+  email = 'facturacion-smoke@example.com'
+  phone = '5550001111'
+} -Session $webSession
+Assert-HasValue -Value $customer.customer.id -Message 'No se pudo crear el customer en smoke test.'
+Write-Host "customer:create id=$($customer.customer.id) status=$($customer.customer.status)"
+
+$customerList = Invoke-Api -Method 'GET' -Url "$BaseUrl/api/customers" -Body $null -Session $webSession
+Write-Host "customer:list count=$($customerList.items.Count) source=$($customerList.source)"
+
+$customerListCached = Invoke-Api -Method 'GET' -Url "$BaseUrl/api/customers" -Body $null -Session $webSession
+Write-Host "customer:list:cached count=$($customerListCached.items.Count) source=$($customerListCached.source)"
+
+$customerRead = Invoke-Api -Method 'GET' -Url "$BaseUrl/api/customers/$($customer.customer.id)" -Body $null -Session $webSession
+Write-Host "customer:get id=$($customerRead.customer.id) source=$($customerRead.source)"
+
+$customerReadCached = Invoke-Api -Method 'GET' -Url "$BaseUrl/api/customers/$($customer.customer.id)" -Body $null -Session $webSession
+Write-Host "customer:get:cached id=$($customerReadCached.customer.id) source=$($customerReadCached.source)"
+
+$customerUpdate = Invoke-Api -Method 'PATCH' -Url "$BaseUrl/api/customers/$($customer.customer.id)" -Body @{
+  phone = '5550002222'
+  status = 'INACTIVE'
+} -Session $webSession
+Write-Host "customer:update id=$($customerUpdate.customer.id) status=$($customerUpdate.customer.status)"
+
 $payment = Invoke-Api -Method 'POST' -Url "$BaseUrl/api/payments" -Body @{
   amount = 125.50
   currency = 'MXN'
@@ -264,7 +291,7 @@ $payments = Invoke-Api -Method 'GET' -Url "$BaseUrl/api/payments" -Body $null -S
 Write-Host "payments: count=$($payments.items.Count)"
 
 $invoice = Invoke-Api -Method 'POST' -Url "$BaseUrl/api/invoices" -Body @{
-  customerTaxId = 'XAXX010101000'
+  customerTaxId = $customer.customer.taxId
   currency = 'MXN'
   subtotal = 100
   total = 116
@@ -286,6 +313,9 @@ $cancelled = Invoke-Api -Method 'POST' -Url "$BaseUrl/api/invoices/cancel" -Body
   reason = 'Smoke test cleanup'
 } -Session $webSession
 Write-Host "cancel: status=$($cancelled.invoice.status) cancellationRef=$($cancelled.invoice.cancellationRef)"
+
+$customerDelete = Invoke-Api -Method 'DELETE' -Url "$BaseUrl/api/customers/$($customer.customer.id)" -Body $null -Session $webSession
+Write-Host "customer:delete message=$($customerDelete.message)"
 
 [void](Invoke-Api -Method 'POST' -Url "$BaseUrl/api/auth/logout" -Body @{} -Session $webSession)
 Write-Host 'logout: ok'

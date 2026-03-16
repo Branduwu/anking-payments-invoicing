@@ -166,6 +166,43 @@ Impacto:
 
 ## Mejoras aplicadas en este ciclo
 
+### 1. CRUD util de `customers` para validar Prisma + Redis
+
+Archivos:
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260316153000_add_customers/migration.sql`
+- `apps/api/src/modules/customers/*`
+- `scripts/smoke-test.ps1`
+
+Estado:
+
+- existe un CRUD completo de `customers`
+- lectura de lista e item usa cache Redis con `source=database|cache`
+- create/update/delete invalidan cache
+- el smoke test ya recorre ese CRUD antes de pagos y facturas
+
+Impacto:
+
+- da una verificacion mas visible de la orquestacion real entre API, Prisma, PostgreSQL y Redis
+- deja una base reutilizable para catalogos y datos maestros
+
+### 2. Preparacion explicita para Neon con Prisma
+
+Archivos:
+
+- `apps/api/prisma/schema.prisma`
+- `.env.example`
+
+Estado:
+
+- Prisma ya soporta `DIRECT_DATABASE_URL`
+- el repo ya distingue la URL pooled de aplicacion y la URL directa de migraciones
+
+Impacto:
+
+- deja al proyecto listo para mover PostgreSQL local a Neon sin rehacer el flujo de Prisma
+
 - se agrego lint real con `eslint.config.mjs`
 - se agregaron scripts raiz de `lint`, `audit:deps`, `prisma:migrate:status` y `prisma:migrate:controlled`
 - se incorporo `scripts/deploy-migrations.ps1`

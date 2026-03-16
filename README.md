@@ -83,6 +83,7 @@ Cliente
 |   |-- architecture.md
 |   |-- ci-cd.md
 |   |-- code-audit.md
+|   |-- environment-guide.md
 |   |-- implementation-status.md
 |   |-- local-runbook.md
 |   |-- observability.md
@@ -139,6 +140,51 @@ Los huecos importantes que todavia quedan:
 
 ## Como funciona hoy
 
+### Modelo de sesion
+
+Este proyecto sigue un modelo **stateful server-side**.
+
+Eso significa:
+
+- el navegador no guarda `access tokens` ni `refresh tokens` como base de autenticacion
+- el navegador recibe una cookie segura con un `sessionId`
+- el backend valida esa sesion contra `Redis` en cada request protegida
+- `PostgreSQL` conserva la verdad durable del usuario, credenciales, roles y auditoria
+- `Redis` conserva la verdad operativa de la sesion activa
+
+En otras palabras: la autenticacion durable vive en `PostgreSQL`, pero la validez inmediata de la sesion vive en `Redis`.
+
+### Que guarda PostgreSQL y que guarda Redis
+
+#### PostgreSQL
+
+Aqui va lo que debe persistir y sobrevivir al tiempo:
+
+- usuarios
+- credenciales
+- roles y permisos
+- customers
+- pagos
+- facturas
+- auditoria durable
+- historial de eventos de seguridad
+
+#### Redis
+
+Aqui va lo efimero, cambiante y de respuesta rapida:
+
+- sesiones activas
+- `sessionId -> userId`
+- `lastActivity`
+- expiracion por inactividad
+- expiracion absoluta
+- estado MFA de la sesion
+- ventana de reautenticacion reciente
+- contadores de rate limit
+- cache de lecturas rapidas como `customers`
+
+Redis no reemplaza a PostgreSQL. Redis acelera y permite revocacion inmediata; PostgreSQL conserva la evidencia y el dato de negocio.
+
 ### Auth y sesiones
 
 - `POST /api/auth/login` valida email y password contra `PostgreSQL`
@@ -148,6 +194,8 @@ Los huecos importantes que todavia quedan:
 - `refresh` rota la sesion creando primero el reemplazo y solo despues revoca la anterior
 - `GET /api/sessions` lista sesiones activas
 - `DELETE /api/sessions/{id}` y `DELETE /api/sessions/all` permiten revocacion inmediata
+- cada request protegida vuelve a validar la sesion en `Redis`
+- si `Redis` no puede confirmar la sesion, la ruta protegida debe fallar cerrada
 
 ### MFA
 
@@ -167,6 +215,13 @@ El modulo actual soporta:
 - `POST /api/payments` crea pagos en `PENDING`
 - la escritura y auditoria ocurren de forma transaccional
 - `GET /api/payments` lista pagos segun permisos del usuario
+
+### Customers
+
+- `POST /api/customers` crea clientes con Prisma
+- `GET /api/customers` y `GET /api/customers/:id` prueban cache en Redis con `source=database|cache`
+- `PATCH /api/customers/:id` y `DELETE /api/customers/:id` invalidan cache y registran auditoria
+- sirve como CRUD de verificacion para confirmar orquestacion entre API, Prisma, PostgreSQL/Neon y Redis
 
 ### Facturas
 
@@ -192,6 +247,16 @@ El modulo actual soporta:
 
 ## Como usarlo localmente
 
+Hay dos formas sanas de ambientar este proyecto:
+
+1. **todo local con Docker**
+2. **PostgreSQL en Neon + Redis local o administrado**
+
+La guia detallada de ambientacion vive en:
+
+- `docs/environment-guide.md`
+- `docs/local-runbook.md`
+
 ### 1. Preparar variables
 
 ```powershell
@@ -203,17 +268,36 @@ Ajusta al menos:
 - `COOKIE_SECRET`
 - `MFA_ENCRYPTION_KEY`
 - `DATABASE_URL`
+- `DIRECT_DATABASE_URL`
 - `REDIS_URL`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 
-### 2. Instalar dependencias
+### 2. Elegir modo de base de datos
+
+#### Opcion A. PostgreSQL local con Docker
+
+- deja `DATABASE_URL` y `DIRECT_DATABASE_URL` apuntando a `localhost:5432`
+- usa `npm.cmd run infra:up`
+
+#### Opcion B. PostgreSQL en Neon
+
+- usa la URL pooled de Neon en `DATABASE_URL`
+- usa la URL directa de Neon en `DIRECT_DATABASE_URL`
+- puedes seguir usando `Redis` local o moverlo a un servicio administrado
+
+Si vas a usar Neon, Prisma queda configurado asi:
+
+- `DATABASE_URL`: usa la URL pooled de Neon para la aplicacion
+- `DIRECT_DATABASE_URL`: usa la URL directa/no pooled para migraciones Prisma
+
+### 3. Instalar dependencias
 
 ```powershell
 npm.cmd install
 ```
 
-### 3. Levantar infraestructura
+### 4. Levantar infraestructura
 
 Con Docker:
 
@@ -226,7 +310,13 @@ Sin Docker, levanta manualmente:
 - `PostgreSQL` en `localhost:5432`
 - `Redis` en `localhost:6379`
 
-### 4. Migrar y seedear
+Si estas en Neon:
+
+- no necesitas levantar `PostgreSQL` local
+- si `REDIS_URL` sigue apuntando a local, si necesitas `Redis` arriba
+- puedes usar Docker solo para `Redis` o conectarte a un Redis administrado
+
+### 5. Migrar y seedear
 
 ```powershell
 npm.cmd run prisma:migrate:deploy
@@ -234,13 +324,36 @@ npm.cmd run prisma:generate
 npm.cmd run seed:admin
 ```
 
-### 5. Arrancar la API
+### 6. Arrancar la API
 
 ```powershell
 npm.cmd start
 ```
 
 Si no existen dependencias y `ALLOW_DEGRADED_STARTUP=true`, la API puede levantar en modo degradado para pruebas de arranque.
+
+### 7. Validar que todo quedo bien
+
+La validacion fuerte recomendada es:
+
+```powershell
+npm.cmd run validate:full
+```
+
+Ese flujo:
+
+- corre `verify`
+- corre `lint`
+- levanta infraestructura
+- arranca la API
+- hace smoke tests reales
+- confirma Prisma, PostgreSQL, Redis, sesiones, customers, pagos y facturas
+
+Si quieres una validacion rapida:
+
+```powershell
+npm.cmd run verify
+```
 
 ## Scripts principales
 
@@ -266,6 +379,7 @@ Que hace cada uno:
 - `infra:up`: levanta `PostgreSQL` y `Redis`, corre migraciones y seed
 - `seed:admin`: bootstrap del usuario administrador; asume Prisma Client ya generado por `verify`, `infra:up`, `validate:local` o `npm run prisma:generate`
 - `smoke:test`: valida endpoints principales contra una API ya levantada
+- `smoke:test` ahora tambien recorre el CRUD de `customers` y comprueba el salto `database -> cache` en Redis antes de pagos y facturas
 - `validate:local`: `verify` + `lint` + infraestructura + arranque + smoke tests
 - `validate:full`: alias legible de `validate:local`
 - `prisma:migrate:controlled`: corre `generate`, `migrate status` y `migrate deploy` de forma controlada
@@ -354,6 +468,43 @@ Con eso ya queda definida una base minima para:
 - rotacion de secretos
 - despliegues con migraciones controladas
 
+## Guia rapida de ambientacion
+
+### Ambiente local minimo
+
+Usa esto si quieres desarrollar rapido en tu maquina:
+
+- `PostgreSQL` local o Docker
+- `Redis` local o Docker
+- `.env` con secretos locales
+- `npm.cmd run infra:up`
+- `npm.cmd run validate:full`
+
+### Ambiente local con Neon
+
+Usa esto si quieres probar ya con una base mas parecida a nube:
+
+- `DATABASE_URL` con Neon pooled
+- `DIRECT_DATABASE_URL` con Neon direct
+- `Redis` local o administrado
+- `npm.cmd run prisma:migrate:deploy`
+- `npm.cmd run seed:admin`
+- `npm.cmd run validate:local`
+
+### Ambiente productivo
+
+Necesitas completar al menos:
+
+- secretos fuera del repo
+- `TLS`
+- `COOKIE_SECURE=true`
+- `__Host-session`
+- `PostgreSQL` administrado
+- `Redis` administrado o HA
+- PAC real
+- observabilidad real
+- CI/CD con ambientes protegidos
+
 ## Como llevarlo a productivo
 
 Ruta recomendada:
@@ -386,6 +537,7 @@ anking-payments-invoicing
 - `docs/development-roadmap.md`
 - `docs/implementation-status.md`
 - `docs/api-surface.md`
+- `docs/environment-guide.md`
 - `docs/local-runbook.md`
 - `docs/ci-cd.md`
 - `docs/observability.md`

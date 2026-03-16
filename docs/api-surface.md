@@ -112,6 +112,46 @@ Prefijo sugerido: `/api`
 - requiere sesion
 - devuelve historial segun permisos
 
+## Customers
+
+### `POST /customers`
+
+- requiere sesion
+- requiere reautenticacion reciente
+- persiste con Prisma
+- invalida cache Redis
+- registra auditoria
+
+### `GET /customers`
+
+- requiere sesion
+- devuelve clientes propios o todos segun permisos
+- usa Redis como cache de lista
+- expone `source=database|cache`
+
+### `GET /customers/:id`
+
+- requiere sesion
+- respeta permisos por rol y propietario
+- usa Redis como cache puntual
+- expone `source=database|cache`
+
+### `PATCH /customers/:id`
+
+- requiere sesion
+- requiere reautenticacion reciente
+- actualiza con Prisma
+- invalida cache Redis
+- registra auditoria
+
+### `DELETE /customers/:id`
+
+- requiere sesion
+- requiere reautenticacion reciente
+- elimina con Prisma
+- invalida cache Redis
+- registra auditoria
+
 ## Invoices
 
 ### `POST /invoices`

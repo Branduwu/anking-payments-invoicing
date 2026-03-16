@@ -116,6 +116,7 @@ export default registerAs('app', () => {
   },
   data: {
     databaseUrl: process.env.DATABASE_URL ?? '',
+    directDatabaseUrl: process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL ?? '',
     redisUrl: process.env.REDIS_URL ?? '',
     redisKeyPrefix: process.env.REDIS_KEY_PREFIX ?? 'platform',
   },

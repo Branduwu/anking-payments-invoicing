@@ -60,13 +60,18 @@ Hace esto contra una API ya levantada:
 3. hace login con el admin del `.env`
 4. consulta `/api/auth/me`
 5. consulta `/api/sessions`
-6. crea un pago
-7. lista pagos
-8. crea una factura ligada al pago
-9. lista facturas
-10. timbra la factura
-11. cancela la factura
-12. hace logout
+6. crea un customer
+7. lista customers
+8. consulta un customer por id
+9. actualiza el customer
+10. crea un pago
+11. lista pagos
+12. crea una factura ligada al pago
+13. lista facturas
+14. timbra la factura
+15. cancela la factura
+16. elimina el customer
+17. hace logout
 
 Si el usuario configurado tiene MFA habilitado, el script intenta completar `POST /api/auth/mfa/verify` usando:
 
@@ -76,6 +81,13 @@ Si el usuario configurado tiene MFA habilitado, el script intenta completar `POS
 Si no existe alguno de esos valores, el smoke test falla de forma explicita para evitar una falsa validacion.
 
 El script ya contempla compatibilidad con Windows PowerShell 5.1 para las llamadas HTTP, asi que no depende del motor viejo de Internet Explorer.
+
+El CRUD de `customers` esta pensado como verificacion util de orquestacion:
+
+- Prisma persiste en PostgreSQL o Neon
+- Redis cachea `GET /customers` y `GET /customers/:id`, y el smoke lo hace visible con un segundo hit `database -> cache`
+- las mutaciones invalidan cache
+- auditoria registra altas, cambios, bajas y denegaciones
 
 ### `npm run validate:local`
 
@@ -157,6 +169,7 @@ npm.cmd run validate:local
 ### Infraestructura
 
 - `DATABASE_URL`
+- `DIRECT_DATABASE_URL`
 - `REDIS_URL`
 - `ALLOW_DEGRADED_STARTUP`
 - `AUDIT_FAIL_CLOSED_SUCCESS_ACTION_PREFIXES`
@@ -344,3 +357,4 @@ curl -b cookies.txt \
 
 - la ruta intento ejecutar una operacion con auditoria duradera y PostgreSQL no estaba disponible
 - revisa `health/ready` y la conectividad de la base
+- si usas Neon, deja `DATABASE_URL` con la URL pooled y `DIRECT_DATABASE_URL` con la URL directa para migraciones

@@ -9,6 +9,7 @@ import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { CustomersModule } from './modules/customers/customers.module';
 import { HealthModule } from './modules/health/health.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -33,6 +34,7 @@ import { SessionsModule } from './modules/sessions/sessions.module';
     SessionsModule,
     HealthModule,
     AuthModule,
+    CustomersModule,
     PaymentsModule,
     InvoicesModule,
   ],
