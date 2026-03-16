@@ -53,6 +53,52 @@ function Read-EnvValues {
   return $values
 }
 
+function Read-ResponseBody {
+  param([object]$Response)
+
+  if ($null -eq $Response) {
+    return $null
+  }
+
+  if ($Response.PSObject.Methods.Name -contains 'GetResponseStream') {
+    $stream = $Response.GetResponseStream()
+    if ($null -eq $stream) {
+      return $null
+    }
+
+    $reader = New-Object System.IO.StreamReader($stream)
+    return $reader.ReadToEnd()
+  }
+
+  if ($Response.PSObject.Properties.Name -contains 'Content') {
+    $content = $Response.Content
+
+    if ($content -is [string]) {
+      return $content
+    }
+
+    if ($null -ne $content -and $content.PSObject.Methods.Name -contains 'ReadAsStringAsync') {
+      return $content.ReadAsStringAsync().GetAwaiter().GetResult()
+    }
+  }
+
+  return $null
+}
+
+function Convert-ResponseBody {
+  param([string]$BodyText)
+
+  if ([string]::IsNullOrWhiteSpace($BodyText)) {
+    return $null
+  }
+
+  try {
+    return $BodyText | ConvertFrom-Json
+  } catch {
+    return $BodyText
+  }
+}
+
 function Invoke-Api {
   param(
     [string]$Method,
@@ -103,18 +149,12 @@ function Invoke-Api {
     if ($null -ne $response) {
       $statusCode = [int]$response.StatusCode
       $normalizedExpectedStatusCodes = @($ExpectedStatusCodes | ForEach-Object { [int]$_ })
+      $bodyText = Read-ResponseBody -Response $response
+      $parsedBody = Convert-ResponseBody -BodyText $bodyText
+
       if ($normalizedExpectedStatusCodes -contains $statusCode) {
-        try {
-          $stream = $response.GetResponseStream()
-          $reader = New-Object System.IO.StreamReader($stream)
-          $bodyText = $reader.ReadToEnd()
-          if ($bodyText) {
-            return $bodyText | ConvertFrom-Json
-          }
-        } catch {
-          return [pscustomobject]@{
-            statusCode = $statusCode
-          }
+        if ($null -ne $parsedBody) {
+          return $parsedBody
         }
 
         return [pscustomobject]@{
@@ -122,9 +162,10 @@ function Invoke-Api {
         }
       }
 
-      $stream = $response.GetResponseStream()
-      $reader = New-Object System.IO.StreamReader($stream)
-      $bodyText = $reader.ReadToEnd()
+      if ([string]::IsNullOrWhiteSpace($bodyText)) {
+        throw "Request $Method $Url failed with status $statusCode."
+      }
+
       throw "Request $Method $Url failed with status $statusCode. Body: $bodyText"
     }
 
@@ -179,7 +220,7 @@ $webSession = $null
 $login = Invoke-Api -Method 'POST' -Url "$BaseUrl/api/auth/login" -Body @{
   email = $AdminEmail
   password = $AdminPassword
-} -SessionVariable 'webSession'
+} -SessionVariable 'script:webSession'
 Write-Host "login: mfaRequired=$($login.mfaRequired)"
 
 if ($login.mfaRequired) {
