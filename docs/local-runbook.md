@@ -30,10 +30,15 @@ Este documento explica como levantar la plataforma localmente, que valida cada s
 Hace esto:
 
 1. asegura `.env` y `apps/api/.env`
+   el archivo `apps/api/.env` se sincroniza desde el `.env` raiz para evitar drift
 2. levanta `postgres` y `redis` con Docker si hace falta
-3. espera a que `5432` y `6379` esten disponibles
+3. espera a que `5432` y `6379` esten disponibles y, si uso Docker, valida health de contenedores
 4. ejecuta `prisma:migrate:deploy`
 5. ejecuta `seed:admin`
+
+Si migraciones o seed fallan despues de levantar Docker, el script imprime logs recientes de `postgres` y `redis`.
+
+`seed:admin` asume que Prisma Client ya fue generado por `verify`, `infra:up` o `npm run prisma:generate`.
 
 Usalo cuando quieras preparar infraestructura sin arrancar la API.
 
@@ -77,27 +82,40 @@ El script ya contempla compatibilidad con Windows PowerShell 5.1 para las llamad
 Hace esto de punta a punta:
 
 1. ejecuta `npm run verify`
-2. ejecuta `npm run infra:up`
-3. falla si ya hay algo escuchando en `localhost:4000`, salvo que se use `-UseRunningApi`
-4. levanta la API compilada si aun no esta arriba
-5. corre `npm run smoke:test`
+2. ejecuta `npm run lint`
+3. ejecuta `npm run infra:up`
+4. falla si ya hay algo escuchando en `localhost:4000`, salvo que se use `-UseRunningApi`
+5. levanta la API compilada si aun no esta arriba y guarda logs de salida
+6. espera `health/live.status=ok` y `health/ready.status=ready`
+7. corre `npm run smoke:test`
 
-Si el proceso de la API termina antes de responder `health/live`, el script falla con el `ExitCode` del proceso para acelerar el diagnostico.
+Si el proceso de la API termina antes de responder `health/live` o `health/ready`, el script falla con el `ExitCode` del proceso e imprime logs recientes para acelerar el diagnostico.
+
+Si `validate:local` fue quien arranco la API y algo falla despues, tambien limpia el proceso para no dejar `localhost:4000` ocupado para el siguiente intento.
 
 Es el mejor script para correr despues de cambios importantes.
+
+`npm run validate:full` es un alias de este mismo flujo.
 
 ### `npm run verify`
 
 Hace esto:
 
 1. intenta regenerar Prisma Client
-2. si el engine esta bloqueado por una API corriendo y el cliente ya esta fresco, continua
-3. ejecuta `build`
-4. ejecuta `test`
+2. reintenta bloqueos transitorios del engine de Prisma en Windows
+3. si el engine sigue bloqueado y el cliente ya esta fresco, continua
+4. ejecuta `build`
+5. ejecuta `test`
 
 Si cambiaste `schema.prisma` o migraciones, usa `npm run verify:full` con la API detenida.
 
 `verify` y `infra:up` validan explicitamente el codigo de salida de `npm`, Prisma y Docker Compose. Si algo falla, el script termina en rojo en vez de seguir silenciosamente.
+
+### Cookies de sesion
+
+- en local sobre HTTP usa `COOKIE_NAME=session`
+- usa `__Host-session` solo con `COOKIE_SECURE=true` y HTTPS
+- la validacion de entorno ya bloquea combinaciones invalidas como `__Host-session` con `COOKIE_SECURE=false`
 
 ### `npm run lint`
 

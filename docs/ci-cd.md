@@ -40,17 +40,20 @@ El workflow `ci.yml` corre en dos etapas:
 - si `quality` falla, no se consumen recursos del job de smoke
 - `smoke` genera Prisma de forma explicita para que el seed y la API no dependan del orden externo del pipeline
 - `quality` y `smoke` corren en runners distintos, asi que `dist/` no sobrevive entre jobs y debe reconstruirse en `smoke`
+- `smoke` usa `COOKIE_NAME=session` porque el job corre sobre HTTP y un nombre `__Host-*` seria invalido sin `COOKIE_SECURE=true`
 
 ### Semantica de `seed:admin`
 
-El script `seed:admin` del workspace `apps/api` ahora ejecuta `prisma generate` antes del bootstrap administrativo.
+El script `seed:admin` del workspace `apps/api` ahora se concentra solo en el bootstrap administrativo.
+
+La generacion de Prisma Client ocurre antes, en el flujo de CI o en `verify`/`infra:up`, para evitar regeneraciones redundantes que en Windows pueden chocar con bloqueos transitorios del engine.
 
 Esto protege dos escenarios:
 
 - ejecucion aislada local o en CI despues de `npm ci`
 - jobs donde el cliente Prisma aun no ha sido generado para el esquema actual
 
-Con eso se evita que `ts-node` falle al compilar el seed por ausencia de enums o tipos generados como `UserRole` o `UserStatus`.
+Con eso se evita que `ts-node` falle al compilar el seed por ausencia de enums o tipos generados como `UserRole` o `UserStatus`, sin volver a introducir un `prisma generate` extra dentro del propio seed.
 
 ## CD
 
@@ -125,6 +128,8 @@ Antes de mergear cambios importantes:
 1. `npm run verify`
 2. `npm run lint`
 3. `npm run validate:local`
+
+`verify` ya reintenta bloqueos transitorios del engine de Prisma en Windows para reducir falsos rojos locales antes de escalar a `verify:full`.
 
 Antes de desplegar:
 

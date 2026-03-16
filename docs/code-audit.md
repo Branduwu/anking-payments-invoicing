@@ -121,6 +121,49 @@ Impacto:
 - evita dejar MFA deshabilitado con sesiones previas todavia activas
 - mantiene una postura conservadora de seguridad ante fallos parciales
 
+### 3. La configuracion de cookie local y de CI ya no usa un prefijo invalido para HTTP
+
+Archivos:
+
+- `apps/api/src/common/config/app.config.ts`
+- `apps/api/src/common/config/env.validation.ts`
+- `.env.example`
+- `.github/workflows/ci.yml`
+
+Estado:
+
+- el nombre por defecto ahora es `session` cuando `COOKIE_SECURE=false`
+- `__Host-session` queda reservado para cookies seguras sobre HTTPS
+- la validacion de entorno ahora bloquea combinaciones invalidas como `COOKIE_NAME=__Host-session` con `COOKIE_SECURE=false`
+
+Impacto:
+
+- evita que navegadores rechacen silenciosamente la cookie de sesion en local o CI HTTP
+- alinea mejor el comportamiento local con el comportamiento real del frontend
+
+### 4. `verify` y `validate:local` ya son mas representativos del quality gate real
+
+Archivos:
+
+- `scripts/verify.ps1`
+- `scripts/validate-local.ps1`
+
+Estado:
+
+- `verify` ahora reintenta bloqueos transitorios del engine de Prisma en Windows
+- `validate:local` ahora ejecuta `lint` ademas de `verify`
+- `validate:local` ahora espera `health/live.status=ok` y `health/ready.status=ready`, y muestra logs de la API si el arranque o el smoke fallan
+- `seed:admin` ya no regenera Prisma Client de forma redundante; usa el cliente preparado por `verify` o CI para evitar choques `EPERM` en Windows
+- `infra:up` y `start-local` sincronizan `apps/api/.env` desde el `.env` raiz para evitar drift de configuracion
+- `infra:up` ahora imprime logs de `postgres` y `redis` si bootstrap falla despues de levantar Docker
+- `validate:local` ahora limpia el arbol de procesos de la API si el readiness check o el smoke fallan, evitando dejar el puerto `4000` ocupado
+
+Impacto:
+
+- reduce falsos rojos locales por bloqueos temporales del engine
+- acerca mas la validacion local al pipeline real de CI
+- mejora mucho el diagnostico del tramo full local con dependencias reales
+
 ## Mejoras aplicadas en este ciclo
 
 - se agrego lint real con `eslint.config.mjs`
@@ -140,6 +183,9 @@ Impacto:
 - `auth` ahora aplica rate limiting real para `login` y `reauthenticate` con trazabilidad de eventos `rate_limited`
 - la rotacion de sesion ahora hace rollback del reemplazo si la revocacion de la sesion anterior falla
 - disable y admin reset de MFA ahora restauran el estado anterior si la parte de sesiones no se puede completar
+- la configuracion de cookie local y de CI ya no usa un nombre `__Host-*` invalido para HTTP
+- `verify` ahora reintenta bloqueos transitorios del engine de Prisma y `validate:local` incluye `lint`
+- el flujo full local ahora sincroniza env, espera readiness real y muestra logs utiles al fallar
 
 ## Dependencias
 

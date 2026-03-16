@@ -72,7 +72,7 @@ jobs:
       PORT: 4000
       API_PREFIX: api
       CORS_ORIGIN: http://localhost:3000
-      COOKIE_NAME: __Host-session
+      COOKIE_NAME: session
       COOKIE_SECRET: ci-cookie-secret-ci-cookie-secret-1234
       COOKIE_SECURE: false
       SESSION_IDLE_TIMEOUT_MINUTES: 15

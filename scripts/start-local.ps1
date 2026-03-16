@@ -33,6 +33,33 @@ function Ensure-EnvFile {
   Write-Host "Creado archivo de entorno: $TargetPath"
 }
 
+function Sync-EnvFile {
+  param(
+    [string]$TargetPath,
+    [string]$SourcePath
+  )
+
+  if (-not (Test-Path $SourcePath)) {
+    throw "No existe el archivo fuente de entorno: $SourcePath"
+  }
+
+  if (-not (Test-Path $TargetPath)) {
+    Copy-Item -Path $SourcePath -Destination $TargetPath
+    Write-Host "Sincronizado archivo de entorno: $TargetPath"
+    return
+  }
+
+  $sourceContent = Get-Content -Path $SourcePath -Raw
+  $targetContent = Get-Content -Path $TargetPath -Raw
+
+  if ($sourceContent -ceq $targetContent) {
+    return
+  }
+
+  Copy-Item -Path $SourcePath -Destination $TargetPath -Force
+  Write-Host "Actualizado archivo de entorno sincronizado: $TargetPath"
+}
+
 function Test-PortReady {
   param([int]$Port)
 
@@ -59,7 +86,7 @@ function Wait-PortReady {
 }
 
 Ensure-EnvFile -TargetPath $rootEnvPath -SourcePath $envTemplatePath
-Ensure-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
+Sync-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
 
 $postgresReady = Test-PortReady -Port 5432
 $redisReady = Test-PortReady -Port 6379

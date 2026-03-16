@@ -19,7 +19,16 @@ const parseList = (value: string | undefined, fallback: string[]): string[] => {
     .filter(Boolean);
 };
 
-export default registerAs('app', () => ({
+const resolveCookieSecure = (): boolean =>
+  parseBoolean(process.env.COOKIE_SECURE, (process.env.NODE_ENV ?? 'development') === 'production');
+
+const resolveDefaultCookieName = (secure: boolean): string => (secure ? '__Host-session' : 'session');
+
+export default registerAs('app', () => {
+  const cookieSecure = resolveCookieSecure();
+  const cookieName = process.env.COOKIE_NAME ?? resolveDefaultCookieName(cookieSecure);
+
+  return {
   name: process.env.APP_NAME ?? 'banking-platform-api',
   version: process.env.APP_VERSION ?? process.env.npm_package_version ?? '0.1.0',
   commitSha: process.env.APP_COMMIT_SHA ?? 'local',
@@ -31,12 +40,9 @@ export default registerAs('app', () => ({
     .map((origin) => origin.trim())
     .filter(Boolean),
   cookie: {
-    name: process.env.COOKIE_NAME ?? '__Host-session',
+    name: cookieName,
     secret: process.env.COOKIE_SECRET ?? '',
-    secure: parseBoolean(
-      process.env.COOKIE_SECURE,
-      (process.env.NODE_ENV ?? 'development') === 'production',
-    ),
+    secure: cookieSecure,
     sameSite: 'strict' as const,
     httpOnly: true,
     path: '/',
@@ -128,4 +134,5 @@ export default registerAs('app', () => ({
   runtime: {
     allowDegradedStartup: parseBoolean(process.env.ALLOW_DEGRADED_STARTUP, false),
   },
-}));
+  };
+});

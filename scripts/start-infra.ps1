@@ -37,6 +37,33 @@ function Ensure-EnvFile {
   Write-Host "Creado archivo de entorno: $TargetPath"
 }
 
+function Sync-EnvFile {
+  param(
+    [string]$TargetPath,
+    [string]$SourcePath
+  )
+
+  if (-not (Test-Path $SourcePath)) {
+    throw "No existe el archivo fuente de entorno: $SourcePath"
+  }
+
+  if (-not (Test-Path $TargetPath)) {
+    Copy-Item -Path $SourcePath -Destination $TargetPath
+    Write-Host "Sincronizado archivo de entorno: $TargetPath"
+    return
+  }
+
+  $sourceContent = Get-Content -Path $SourcePath -Raw
+  $targetContent = Get-Content -Path $TargetPath -Raw
+
+  if ($sourceContent -ceq $targetContent) {
+    return
+  }
+
+  Copy-Item -Path $SourcePath -Destination $TargetPath -Force
+  Write-Host "Actualizado archivo de entorno sincronizado: $TargetPath"
+}
+
 function Test-PortReady {
   param([int]$Port)
 
@@ -62,11 +89,44 @@ function Wait-PortReady {
   throw "El puerto $Port no estuvo disponible dentro de $TimeoutSeconds segundos."
 }
 
+function Wait-DockerHealth {
+  param(
+    [string]$DockerExecutable,
+    [string]$ContainerName,
+    [int]$TimeoutSeconds = 90
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    $status = & $DockerExecutable inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" $ContainerName 2>$null
+    if ($LASTEXITCODE -eq 0 -and ($status -eq 'healthy' -or $status -eq 'running')) {
+      return
+    }
+
+    Start-Sleep -Seconds 2
+  }
+
+  throw "El contenedor $ContainerName no alcanzo estado healthy dentro de $TimeoutSeconds segundos."
+}
+
+function Print-DockerServiceLogs {
+  param(
+    [string]$DockerExecutable,
+    [string[]]$ServiceNames
+  )
+
+  foreach ($serviceName in $ServiceNames) {
+    Write-Warning "Logs recientes de ${serviceName}:"
+    & $DockerExecutable compose logs --tail 50 $serviceName
+  }
+}
+
 Ensure-EnvFile -TargetPath $rootEnvPath -SourcePath $envTemplatePath
-Ensure-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
+Sync-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
 
 $postgresReady = Test-PortReady -Port 5432
 $redisReady = Test-PortReady -Port 6379
+$usedDockerCompose = $false
 
 if (-not $postgresReady -or -not $redisReady) {
   $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
@@ -78,6 +138,7 @@ if (-not $postgresReady -or -not $redisReady) {
   Push-Location $repoRoot
   try {
     Invoke-CheckedCommand -FilePath $dockerCommand.Source -Arguments @('compose', 'up', '-d', 'postgres', 'redis') -ErrorMessage 'Docker Compose no pudo levantar PostgreSQL y Redis.'
+    $usedDockerCompose = $true
   }
   finally {
     Pop-Location
@@ -85,6 +146,8 @@ if (-not $postgresReady -or -not $redisReady) {
 
   Wait-PortReady -Port 5432
   Wait-PortReady -Port 6379
+  Wait-DockerHealth -DockerExecutable $dockerCommand.Source -ContainerName 'platform-postgres'
+  Wait-DockerHealth -DockerExecutable $dockerCommand.Source -ContainerName 'platform-redis'
 }
 
 if ($SkipBootstrap) {
@@ -94,8 +157,16 @@ if ($SkipBootstrap) {
 
 Push-Location $repoRoot
 try {
-  Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'prisma:migrate:deploy') -ErrorMessage 'La aplicacion de migraciones Prisma fallo.'
-  Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'seed:admin') -ErrorMessage 'El bootstrap del usuario administrador fallo.'
+  try {
+    Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'prisma:migrate:deploy') -ErrorMessage 'La aplicacion de migraciones Prisma fallo.'
+    Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'seed:admin') -ErrorMessage 'El bootstrap del usuario administrador fallo.'
+  } catch {
+    if ($usedDockerCompose -and $dockerCommand) {
+      Print-DockerServiceLogs -DockerExecutable $dockerCommand.Source -ServiceNames @('postgres', 'redis')
+    }
+
+    throw
+  }
 }
 finally {
   Pop-Location

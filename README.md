@@ -44,6 +44,7 @@ Infraestructura:
 - `NestJS` como API
 - `PostgreSQL` para datos durables y auditoria
 - `Redis` para sesiones y datos efimeros
+- cookie `session` por defecto en local y `__Host-session` cuando se usa cookie segura por HTTPS
 - PAC configurable via `mock` o `custom-http`
 - integracion bancaria prevista para una fase posterior
 
@@ -229,6 +230,7 @@ Sin Docker, levanta manualmente:
 
 ```powershell
 npm.cmd run prisma:migrate:deploy
+npm.cmd run prisma:generate
 npm.cmd run seed:admin
 ```
 
@@ -251,17 +253,21 @@ npm.cmd run infra:up
 npm.cmd run infra:down
 npm.cmd run smoke:test
 npm.cmd run validate:local
+npm.cmd run validate:full
 npm.cmd run prisma:migrate:controlled
 ```
 
 Que hace cada uno:
 
 - `verify`: Prisma generate, build y unit tests
+- `verify` ya reintenta bloqueos transitorios del engine de Prisma en Windows antes de fallar
 - `lint`: validacion estatica con ESLint
 - `audit:deps`: revisa vulnerabilidades de dependencias
 - `infra:up`: levanta `PostgreSQL` y `Redis`, corre migraciones y seed
+- `seed:admin`: bootstrap del usuario administrador; asume Prisma Client ya generado por `verify`, `infra:up`, `validate:local` o `npm run prisma:generate`
 - `smoke:test`: valida endpoints principales contra una API ya levantada
-- `validate:local`: `verify` + infraestructura + arranque + smoke tests
+- `validate:local`: `verify` + `lint` + infraestructura + arranque + smoke tests
+- `validate:full`: alias legible de `validate:local`
 - `prisma:migrate:controlled`: corre `generate`, `migrate status` y `migrate deploy` de forma controlada
 
 ## Flujo recomendado despues de cambios importantes
@@ -277,6 +283,10 @@ Cada vez que cambies logica de dominio, seguridad, infraestructura o contratos:
 Nota operativa:
 
 - si `npm.cmd run verify` falla con `EPERM` sobre `query_engine-windows.dll.node`, normalmente tienes una API o watcher de Node bloqueando Prisma en Windows; detenlo y repite la verificacion
+- si usas `COOKIE_NAME=__Host-session`, activa tambien `COOKIE_SECURE=true` y sirve la app por HTTPS; para local sobre HTTP el valor recomendado es `session`
+- `infra:up`, `start-local` y `validate:local` sincronizan `apps/api/.env` desde el `.env` raiz para evitar drift de configuracion
+- `validate:local` exige `health/live.status=ok` y `health/ready.status=ready`, y si la API no levanta o el smoke falla imprime logs recientes para diagnostico rapido
+- si `validate:local` arranca la API y luego falla, limpia el proceso para no dejar el puerto `4000` ocupado
 
 ## CI/CD preparado para repo
 

@@ -22,6 +22,7 @@
     "verify": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify.ps1",
     "verify:full": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify.ps1 -ForcePrismaGenerate",
     "validate:local": "powershell -ExecutionPolicy Bypass -File .\\scripts\\validate-local.ps1",
+    "validate:full": "npm run validate:local",
     "ci": "npm run verify && npm run lint",
     "audit:deps": "npm audit --audit-level=moderate",
     "prisma:generate": "npm --workspace apps/api run prisma:generate",
