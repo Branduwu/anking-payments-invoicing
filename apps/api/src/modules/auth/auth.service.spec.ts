@@ -531,6 +531,9 @@ describe('AuthService', () => {
     prismaService.user.findUnique.mockResolvedValue({
       id: 'usr_1',
       mfaEnabled: true,
+      mfaTotpSecretEnc: 'encrypted-secret',
+      mfaRecoveryCodes: ['hash1'],
+      mfaRecoveryCodesGeneratedAt: new Date('2026-03-16T00:00:00.000Z'),
     });
     sessionsService.revokeAllSessions.mockResolvedValue(2);
     sessionsService.completeMfaChallenge.mockResolvedValue({
@@ -567,6 +570,67 @@ describe('AuthService', () => {
     expect(result.mfaLevel).toBe('none');
   });
 
+  it('restores the previous MFA state when disabling MFA fails during session enforcement', async () => {
+    const generatedAt = new Date('2026-03-16T00:00:00.000Z');
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      mfaEnabled: true,
+      mfaTotpSecretEnc: 'encrypted-secret',
+      mfaRecoveryCodes: ['hash1'],
+      mfaRecoveryCodesGeneratedAt: generatedAt,
+    });
+    sessionsService.revokeAllSessions.mockRejectedValue(new Error('redis unavailable'));
+
+    await expect(
+      service.disableMfa(
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          reason: 'Rotacion de dispositivo',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toThrow('redis unavailable');
+
+    expect(prismaService.user.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'usr_1' },
+      data: {
+        mfaEnabled: false,
+        mfaTotpSecretEnc: null,
+        mfaRecoveryCodes: [],
+        mfaRecoveryCodesGeneratedAt: null,
+      },
+    });
+    expect(prismaService.user.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'usr_1' },
+      data: {
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+        mfaRecoveryCodes: ['hash1'],
+        mfaRecoveryCodesGeneratedAt: generatedAt,
+      },
+    });
+    expect(prismaService.auditEvent.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({
+        action: 'auth.mfa.disabled.rollback',
+        result: 'SUCCESS',
+        userId: 'usr_1',
+        entityId: 'usr_1',
+      }),
+    });
+  });
+
   it('denies admin MFA reset without a privileged role', async () => {
     prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.OPERATOR }]);
 
@@ -592,5 +656,68 @@ describe('AuthService', () => {
         },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('restores the target MFA state when admin reset fails during session enforcement', async () => {
+    const generatedAt = new Date('2026-03-16T00:00:00.000Z');
+    prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.ADMIN }]);
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_2',
+      mfaEnabled: true,
+      mfaTotpSecretEnc: 'encrypted-secret',
+      mfaRecoveryCodes: ['hash1'],
+      mfaRecoveryCodesGeneratedAt: generatedAt,
+    });
+    sessionsService.revokeAllSessions.mockRejectedValue(new Error('redis unavailable'));
+
+    await expect(
+      service.adminResetMfa(
+        {
+          id: 'sess_1',
+          userId: 'usr_admin',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          userId: 'usr_2',
+          reason: 'Incidente',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toThrow('redis unavailable');
+
+    expect(prismaService.user.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'usr_2' },
+      data: {
+        mfaEnabled: false,
+        mfaTotpSecretEnc: null,
+        mfaRecoveryCodes: [],
+        mfaRecoveryCodesGeneratedAt: null,
+      },
+    });
+    expect(prismaService.user.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'usr_2' },
+      data: {
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+        mfaRecoveryCodes: ['hash1'],
+        mfaRecoveryCodesGeneratedAt: generatedAt,
+      },
+    });
+    expect(prismaService.auditEvent.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({
+        action: 'auth.mfa.admin_reset.rollback',
+        result: 'SUCCESS',
+        userId: 'usr_admin',
+        entityId: 'usr_2',
+      }),
+    });
   });
 });

@@ -5,6 +5,7 @@ import {
   HttpException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -38,6 +39,13 @@ interface VerifyMfaResult {
 interface RecoveryCodesResult {
   recoveryCodes: string[];
   remainingRecoveryCodes: number;
+}
+
+interface UserMfaStateSnapshot {
+  mfaEnabled: boolean;
+  mfaTotpSecretEnc: string | null;
+  mfaRecoveryCodes: string[];
+  mfaRecoveryCodesGeneratedAt: Date | null;
 }
 
 @Injectable()
@@ -545,12 +553,17 @@ export class AuthService {
       select: {
         id: true,
         mfaEnabled: true,
+        mfaTotpSecretEnc: true,
+        mfaRecoveryCodes: true,
+        mfaRecoveryCodesGeneratedAt: true,
       },
     });
 
     if (!user || !user.mfaEnabled) {
       throw new ConflictException('MFA is not enabled for this account');
     }
+
+    const previousMfaState = this.getMfaStateSnapshot(user);
 
     await this.prismaService.$transaction(async (tx) => {
       await tx.user.update({
@@ -574,14 +587,29 @@ export class AuthService {
       });
     });
 
-    await this.sessionsService.revokeAllSessions(user.id, 'mfa-disabled', session.id);
-    const updatedSession = await this.sessionsService.completeMfaChallenge(session.id, 'none');
+    try {
+      await this.sessionsService.revokeAllSessions(user.id, 'mfa-disabled', session.id);
+      const updatedSession = await this.sessionsService.completeMfaChallenge(session.id, 'none');
 
-    if (!updatedSession) {
-      throw new UnauthorizedException('Current session is not valid');
+      if (!updatedSession) {
+        throw new UnauthorizedException('Current session is not valid');
+      }
+
+      return updatedSession;
+    } catch (error) {
+      await this.rollbackMfaState(
+        user.id,
+        user.id,
+        previousMfaState,
+        'auth.mfa.disabled.rollback',
+        metadata,
+        {
+          reason: payload.reason,
+          rollbackReason: 'session-enforcement-failed',
+        },
+      );
+      throw error;
     }
-
-    return updatedSession;
   }
 
   async adminResetMfa(
@@ -614,12 +642,17 @@ export class AuthService {
       select: {
         id: true,
         mfaEnabled: true,
+        mfaTotpSecretEnc: true,
+        mfaRecoveryCodes: true,
+        mfaRecoveryCodesGeneratedAt: true,
       },
     });
 
     if (!targetUser) {
       throw new NotFoundException('Target user not found');
     }
+
+    const previousMfaState = this.getMfaStateSnapshot(targetUser);
 
     await this.prismaService.$transaction(async (tx) => {
       await tx.user.update({
@@ -643,13 +676,31 @@ export class AuthService {
       });
     });
 
-    if (payload.userId === session.userId) {
-      await this.sessionsService.revokeAllSessions(payload.userId, 'mfa-admin-reset', session.id);
-      await this.sessionsService.completeMfaChallenge(session.id, 'none');
-      return;
-    }
+    try {
+      if (payload.userId === session.userId) {
+        await this.sessionsService.revokeAllSessions(payload.userId, 'mfa-admin-reset', session.id);
+        const updatedSession = await this.sessionsService.completeMfaChallenge(session.id, 'none');
+        if (!updatedSession) {
+          throw new UnauthorizedException('Current session is not valid');
+        }
+        return;
+      }
 
-    await this.sessionsService.revokeAllSessions(payload.userId, 'mfa-admin-reset');
+      await this.sessionsService.revokeAllSessions(payload.userId, 'mfa-admin-reset');
+    } catch (error) {
+      await this.rollbackMfaState(
+        session.userId,
+        payload.userId,
+        previousMfaState,
+        'auth.mfa.admin_reset.rollback',
+        metadata,
+        {
+          reason: payload.reason,
+          rollbackReason: 'session-enforcement-failed',
+        },
+      );
+      throw error;
+    }
   }
 
   private normalizeEmail(email: string): string {
@@ -663,6 +714,59 @@ export class AuthService {
       mfaRecoveryCodes: [],
       mfaRecoveryCodesGeneratedAt: null,
     };
+  }
+
+  private getMfaStateSnapshot(state: UserMfaStateSnapshot): UserMfaStateSnapshot {
+    return {
+      mfaEnabled: state.mfaEnabled,
+      mfaTotpSecretEnc: state.mfaTotpSecretEnc,
+      mfaRecoveryCodes: [...state.mfaRecoveryCodes],
+      mfaRecoveryCodesGeneratedAt: state.mfaRecoveryCodesGeneratedAt,
+    };
+  }
+
+  private getMfaStateData(snapshot: UserMfaStateSnapshot) {
+    return {
+      mfaEnabled: snapshot.mfaEnabled,
+      mfaTotpSecretEnc: snapshot.mfaTotpSecretEnc,
+      mfaRecoveryCodes: [...snapshot.mfaRecoveryCodes],
+      mfaRecoveryCodesGeneratedAt: snapshot.mfaRecoveryCodesGeneratedAt,
+    };
+  }
+
+  private async rollbackMfaState(
+    actorUserId: string,
+    targetUserId: string,
+    snapshot: UserMfaStateSnapshot,
+    action: 'auth.mfa.disabled.rollback' | 'auth.mfa.admin_reset.rollback',
+    metadata: RequestMetadata,
+    extraMetadata?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.prismaService.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: targetUserId },
+          data: this.getMfaStateData(snapshot),
+        });
+
+        await tx.auditEvent.create({
+          data: this.auditService.buildCreateData({
+            action,
+            result: 'SUCCESS',
+            userId: actorUserId,
+            requestId: metadata.requestId,
+            ipAddress: metadata.ipAddress,
+            entityType: 'user',
+            entityId: targetUserId,
+            metadata: extraMetadata,
+          }),
+        });
+      });
+    } catch {
+      throw new ServiceUnavailableException(
+        'Failed to restore MFA state after session enforcement error',
+      );
+    }
   }
 
   private async getUserRoles(userId: string): Promise<UserRole[]> {

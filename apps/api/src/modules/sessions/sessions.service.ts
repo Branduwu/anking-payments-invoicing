@@ -92,16 +92,25 @@ export class SessionsService {
       throw new UnauthorizedException('Current session is not valid');
     }
 
-    await this.revokeSession(currentSession.userId, currentSession.id, 'session-rotation');
     const nextSession = await this.createSession(
       currentSession.userId,
       context,
       currentSession.mfaLevel,
       currentSession.requiresMfa ?? false,
     );
-    nextSession.reauthenticatedUntil = currentSession.reauthenticatedUntil;
-    await this.persistSession(nextSession);
-    return nextSession;
+
+    if (currentSession.reauthenticatedUntil) {
+      nextSession.reauthenticatedUntil = currentSession.reauthenticatedUntil;
+      await this.persistSession(nextSession);
+    }
+
+    try {
+      await this.revokeSession(currentSession.userId, currentSession.id, 'session-rotation');
+      return nextSession;
+    } catch (error) {
+      await this.deleteSession(nextSession.userId, nextSession.id);
+      throw error;
+    }
   }
 
   async listUserSessions(userId: string): Promise<ActiveSession[]> {

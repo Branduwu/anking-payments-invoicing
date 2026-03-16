@@ -53,6 +53,7 @@ Capacidades actuales:
 - timeout por inactividad
 - timeout absoluto
 - rotacion de sesion
+- rotacion segura con rollback del reemplazo si la revocacion falla
 - listado de sesiones
 - revocacion individual y masiva
 
@@ -72,6 +73,7 @@ Capacidades actuales:
 - regeneracion de recovery codes
 - disable voluntario
 - reset administrativo
+- compensacion de estado si el endurecimiento de sesiones falla
 - lockout temporal por intentos fallidos
 - reautenticacion con ventana temporal para operaciones sensibles
 

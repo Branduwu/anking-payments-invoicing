@@ -106,7 +106,9 @@ La base actual ya deja:
 
 - login real contra `PostgreSQL`
 - sesiones persistidas en `Redis` con revocacion inmediata
+- rotacion de sesion segura con rollback del reemplazo si la revocacion falla
 - MFA TOTP con setup, verify, recovery codes, disable y admin reset
+- disable y admin reset de MFA con compensacion para restaurar el estado si Redis o la actualizacion de sesiones fallan
 - rate limiting de autenticacion en `Redis` para `login` y `reauthenticate`
 - throttling y lockout temporal para MFA
 - pagos persistidos con auditoria durable
@@ -142,6 +144,7 @@ Los huecos importantes que todavia quedan:
 - si el usuario tiene MFA, la sesion queda en estado pendiente hasta `POST /api/auth/mfa/verify`
 - `login` y `reauthenticate` aplican rate limiting por correo/usuario e IP usando `Redis`
 - las sesiones viven en `Redis`
+- `refresh` rota la sesion creando primero el reemplazo y solo despues revoca la anterior
 - `GET /api/sessions` lista sesiones activas
 - `DELETE /api/sessions/{id}` y `DELETE /api/sessions/all` permiten revocacion inmediata
 
@@ -155,6 +158,7 @@ El modulo actual soporta:
 - regeneracion de recovery codes
 - disable voluntario
 - reset administrativo
+- rollback de estado MFA si el endurecimiento de sesiones no se puede completar
 - throttling y lockout por intentos fallidos
 
 ### Pagos
@@ -269,6 +273,10 @@ Cada vez que cambies logica de dominio, seguridad, infraestructura o contratos:
 3. `npm.cmd run validate:local`
 4. revisar `docs/code-audit.md`
 5. actualizar este `README` y la documentacion afectada
+
+Nota operativa:
+
+- si `npm.cmd run verify` falla con `EPERM` sobre `query_engine-windows.dll.node`, normalmente tienes una API o watcher de Node bloqueando Prisma en Windows; detenlo y repite la verificacion
 
 ## CI/CD preparado para repo
 

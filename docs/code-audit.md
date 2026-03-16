@@ -84,6 +84,43 @@ Impacto:
 - el repo ya no depende de memoria tribal para operar
 - aun falta la integracion final con tooling productivo
 
+## Hallazgos resueltos en este ciclo
+
+### 1. Rotacion de sesion ya no expulsa al usuario por un fallo a mitad del refresh
+
+Archivos:
+
+- `apps/api/src/modules/sessions/sessions.service.ts`
+- `apps/api/src/modules/sessions/sessions.service.spec.ts`
+
+Estado:
+
+- `rotateSession` ahora crea primero la sesion de reemplazo
+- si la revocacion de la sesion anterior falla, elimina la sesion nueva y propaga el error
+- ya existen pruebas para validar el orden y el rollback
+
+Impacto:
+
+- evita logout involuntario por fallos transitorios en Redis o auditoria durante `refresh`
+
+### 2. Disable y admin reset de MFA ya no dejan PostgreSQL y Redis desalineados
+
+Archivos:
+
+- `apps/api/src/modules/auth/auth.service.ts`
+- `apps/api/src/modules/auth/auth.service.spec.ts`
+
+Estado:
+
+- `disableMfa` y `adminResetMfa` capturan el estado MFA previo
+- si la revocacion de sesiones o la actualizacion de la sesion actual fallan, restauran el estado anterior en `PostgreSQL`
+- el rollback queda auditado y probado
+
+Impacto:
+
+- evita dejar MFA deshabilitado con sesiones previas todavia activas
+- mantiene una postura conservadora de seguridad ante fallos parciales
+
 ## Mejoras aplicadas en este ciclo
 
 - se agrego lint real con `eslint.config.mjs`
@@ -101,6 +138,8 @@ Impacto:
 - se agregaron runbooks de incidente, revocacion, rotacion y despliegue
 - se amplio el `README` y la documentacion operativa
 - `auth` ahora aplica rate limiting real para `login` y `reauthenticate` con trazabilidad de eventos `rate_limited`
+- la rotacion de sesion ahora hace rollback del reemplazo si la revocacion de la sesion anterior falla
+- disable y admin reset de MFA ahora restauran el estado anterior si la parte de sesiones no se puede completar
 
 ## Dependencias
 
