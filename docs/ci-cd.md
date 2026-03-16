@@ -100,10 +100,18 @@ Para `ci.yml`, el workflow usa valores efimeros definidos inline.
 Para `deploy.yml`, define secretos por `environment`:
 
 - `DEPLOY_DATABASE_URL`
-- `DEPLOY_BASE_URL`
-- `SMOKE_ADMIN_EMAIL`
-- `SMOKE_ADMIN_PASSWORD`
-- `SMOKE_ADMIN_MFA_TOTP_CODE` o `SMOKE_ADMIN_MFA_RECOVERY_CODE`
+      - `DEPLOY_BASE_URL`
+      - `SMOKE_ADMIN_EMAIL`
+      - `SMOKE_ADMIN_PASSWORD`
+      - `SMOKE_ADMIN_MFA_TOTP_CODE` o `SMOKE_ADMIN_MFA_RECOVERY_CODE`
+
+El script `smoke-test.ps1` resuelve credenciales en este orden:
+
+1. parametros explicitos del script
+2. variables de entorno del job
+3. archivo `.env`
+
+Con eso el mismo script funciona bien en local y en GitHub Actions sin depender de un `.env` presente en el runner.
 
 ## Regla operativa
 

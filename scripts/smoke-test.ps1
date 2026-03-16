@@ -13,6 +13,25 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+function Resolve-ConfigValue {
+  param(
+    [string]$ExplicitValue,
+    [string]$EnvironmentVariableName,
+    [hashtable]$EnvValues
+  )
+
+  if (-not [string]::IsNullOrWhiteSpace($ExplicitValue)) {
+    return $ExplicitValue
+  }
+
+  $environmentValue = [System.Environment]::GetEnvironmentVariable($EnvironmentVariableName)
+  if (-not [string]::IsNullOrWhiteSpace($environmentValue)) {
+    return $environmentValue
+  }
+
+  return $EnvValues[$EnvironmentVariableName]
+}
+
 function Read-EnvValues {
   param([string]$Path)
 
@@ -126,21 +145,10 @@ function Assert-HasValue {
 
 $envValues = Read-EnvValues -Path (Join-Path $repoRoot $EnvFile)
 
-if (-not $AdminEmail) {
-  $AdminEmail = $envValues['ADMIN_EMAIL']
-}
-
-if (-not $AdminPassword) {
-  $AdminPassword = $envValues['ADMIN_PASSWORD']
-}
-
-if (-not $AdminMfaTotpCode) {
-  $AdminMfaTotpCode = $envValues['ADMIN_MFA_TOTP_CODE']
-}
-
-if (-not $AdminMfaRecoveryCode) {
-  $AdminMfaRecoveryCode = $envValues['ADMIN_MFA_RECOVERY_CODE']
-}
+$AdminEmail = Resolve-ConfigValue -ExplicitValue $AdminEmail -EnvironmentVariableName 'ADMIN_EMAIL' -EnvValues $envValues
+$AdminPassword = Resolve-ConfigValue -ExplicitValue $AdminPassword -EnvironmentVariableName 'ADMIN_PASSWORD' -EnvValues $envValues
+$AdminMfaTotpCode = Resolve-ConfigValue -ExplicitValue $AdminMfaTotpCode -EnvironmentVariableName 'ADMIN_MFA_TOTP_CODE' -EnvValues $envValues
+$AdminMfaRecoveryCode = Resolve-ConfigValue -ExplicitValue $AdminMfaRecoveryCode -EnvironmentVariableName 'ADMIN_MFA_RECOVERY_CODE' -EnvValues $envValues
 
 $live = Invoke-Api -Method 'GET' -Url "$BaseUrl/api/health/live" -Body $null -Session $null
 Assert-HasValue -Value $live.status -Message 'El endpoint /api/health/live no devolvio estado.'
