@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: platform-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - platform-internal
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: platform-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - platform-internal
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: platform-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://platform:platform@postgres:5432/platform
+      REDIS_URL: redis://redis:6379
+      ALLOW_DEGRADED_STARTUP: "false"
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migration-runner:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health/live >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - platform-internal
+
+  migration-runner:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: platform-migration-runner
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://platform:platform@postgres:5432/platform
+      REDIS_URL: redis://redis:6379
+      ALLOW_DEGRADED_STARTUP: "false"
+    command: ["npm", "run", "prisma:migrate:deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - platform-internal
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  platform-internal:
+    driver: bridge

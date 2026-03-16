@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+.idea/
+.vscode/
+.env
+.env.local
+.env.*.local
+coverage/
+.turbo/
+.pnpm-store/
+apps/api/node_modules/
+apps/api/dist/
+apps/api/.nestjs-cache/

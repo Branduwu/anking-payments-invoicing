@@ -1,0 +1,28 @@
+{
+  "name": "banking-platform",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/api"
+  ],
+  "scripts": {
+    "start": "npm run start:local",
+    "build": "npm run build:api",
+    "build:api": "npm --workspace apps/api run build",
+    "dev": "npm run dev:api",
+    "dev:api": "npm --workspace apps/api run start:dev",
+    "start:local": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-local.ps1",
+    "infra:up": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-infra.ps1",
+    "infra:down": "powershell -ExecutionPolicy Bypass -File .\\scripts\\stop-infra.ps1",
+    "smoke:test": "powershell -ExecutionPolicy Bypass -File .\\scripts\\smoke-test.ps1",
+    "test": "npm run test:api",
+    "test:api": "npm --workspace apps/api run test",
+    "verify": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify.ps1",
+    "verify:full": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify.ps1 -ForcePrismaGenerate",
+    "validate:local": "powershell -ExecutionPolicy Bypass -File .\\scripts\\validate-local.ps1",
+    "prisma:generate": "npm --workspace apps/api run prisma:generate",
+    "prisma:migrate:dev": "npm --workspace apps/api run prisma:migrate:dev",
+    "prisma:migrate:deploy": "npm --workspace apps/api run prisma:migrate:deploy",
+    "seed:admin": "npm --workspace apps/api run seed:admin"
+  }
+}

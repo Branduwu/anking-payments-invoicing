@@ -1,0 +1,500 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { UserRole, UserStatus } from '@prisma/client';
+import { verify } from 'argon2';
+import { AuthService } from './auth.service';
+
+jest.mock('argon2', () => ({
+  verify: jest.fn(),
+}));
+
+describe('AuthService', () => {
+  const configService = {
+    get: jest.fn((path: string) => {
+      if (path === 'app.auth.maxFailedAttempts') {
+        return 5;
+      }
+
+      if (path === 'app.auth.lockoutMinutes') {
+        return 15;
+      }
+
+      return undefined;
+    }),
+  };
+
+  const prismaService = {
+    $transaction: jest.fn(),
+    user: {
+      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      update: jest.fn(),
+    },
+    auditEvent: {
+      create: jest.fn(),
+    },
+    userRoleAssignment: {
+      findMany: jest.fn(),
+    },
+    passwordCredential: {
+      update: jest.fn(),
+    },
+  };
+
+  const auditService = {
+    record: jest.fn(),
+    buildCreateData: jest.fn((event: unknown) => event),
+  };
+
+  const sessionsService = {
+    createSession: jest.fn(),
+    markReauthenticated: jest.fn(),
+    revokeSession: jest.fn(),
+    revokeAllSessions: jest.fn(),
+    rotateSession: jest.fn(),
+    completeMfaChallenge: jest.fn(),
+  };
+
+  const mfaService = {
+    createSetup: jest.fn(),
+    verifyPendingSetup: jest.fn(),
+    clearPendingSetup: jest.fn(),
+    verifyEncryptedSecret: jest.fn(),
+    generateRecoveryCodes: jest.fn(),
+    consumeRecoveryCode: jest.fn(),
+  };
+
+  let service: AuthService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prismaService.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) =>
+      callback({
+        user: prismaService.user,
+        auditEvent: prismaService.auditEvent,
+      }),
+    );
+    service = new AuthService(
+      configService as never,
+      prismaService as never,
+      auditService as never,
+      sessionsService as never,
+      mfaService as never,
+    );
+  });
+
+  it('logs in successfully and opens a session for a valid non-MFA user', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      email: 'admin@example.com',
+      status: UserStatus.ACTIVE,
+      mfaEnabled: false,
+      credentials: {
+        passwordHash: 'hash',
+        failedLoginCount: 0,
+        lockedUntil: null,
+      },
+    });
+    (verify as jest.Mock).mockResolvedValue(true);
+    sessionsService.createSession.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+    });
+    sessionsService.markReauthenticated.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+    });
+
+    const result = await service.login(
+      {
+        email: 'ADMIN@example.com',
+        password: 'super-secret-123',
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(prismaService.user.findUnique).toHaveBeenCalledWith({
+      where: { email: 'admin@example.com' },
+      include: { credentials: true },
+    });
+    expect(sessionsService.createSession).toHaveBeenCalledWith(
+      'usr_1',
+      expect.objectContaining({
+        requestId: 'req_1',
+      }),
+      'none',
+      false,
+    );
+    expect(sessionsService.markReauthenticated).toHaveBeenCalledWith('sess_1');
+    expect(result).toEqual({
+      sessionId: 'sess_1',
+      mfaRequired: false,
+    });
+  });
+
+  it('rejects invalid credentials and increments failed logins', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      email: 'admin@example.com',
+      status: UserStatus.ACTIVE,
+      mfaEnabled: false,
+      credentials: {
+        passwordHash: 'hash',
+        failedLoginCount: 1,
+        lockedUntil: null,
+      },
+    });
+    (verify as jest.Mock).mockResolvedValue(false);
+
+    await expect(
+      service.login(
+        {
+          email: 'admin@example.com',
+          password: 'bad-password',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(prismaService.passwordCredential.update).toHaveBeenCalled();
+  });
+
+  it('returns the current user profile with roles and recovery-code count', async () => {
+    prismaService.user.findUniqueOrThrow.mockResolvedValue({
+      id: 'usr_1',
+      email: 'admin@example.com',
+      displayName: 'Admin',
+      status: UserStatus.ACTIVE,
+      mfaEnabled: true,
+      mfaRecoveryCodes: ['one', 'two'],
+      roles: [{ role: UserRole.ADMIN }, { role: UserRole.SECURITY }],
+    });
+
+    const result = await service.getMe({
+      id: 'sess_1',
+      userId: 'usr_1',
+      status: 'active',
+      mfaLevel: 'none',
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+      expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+      absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+    });
+
+    expect(result.user.roles).toEqual([UserRole.ADMIN, UserRole.SECURITY]);
+    expect(result.user.recoveryCodesRemaining).toBe(2);
+  });
+
+  it('redirects password reauthentication to MFA verification when MFA is enabled', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      email: 'admin@example.com',
+      status: UserStatus.ACTIVE,
+      mfaEnabled: true,
+      credentials: {
+        passwordHash: 'hash',
+        failedLoginCount: 0,
+        lockedUntil: null,
+      },
+    });
+
+    await expect(
+      service.reauthenticate(
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          password: 'super-secret-123',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('creates an MFA setup for a valid user without MFA enabled', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      email: 'admin@example.com',
+      mfaEnabled: false,
+    });
+    mfaService.createSetup.mockResolvedValue({
+      secret: 'SECRET',
+      otpauthUrl: 'otpauth://totp/demo',
+      issuer: 'banking-platform-api',
+      accountName: 'admin@example.com',
+      expiresInSeconds: 600,
+    });
+
+    const result = await service.setupMfa(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'none',
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(mfaService.createSetup).toHaveBeenCalledWith('sess_1', 'admin@example.com');
+    expect(result.secret).toBe('SECRET');
+  });
+
+  it('rejects MFA setup if MFA is already enabled', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      email: 'admin@example.com',
+      mfaEnabled: true,
+    });
+
+    await expect(
+      service.setupMfa(
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'none',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('enables MFA and returns recovery codes when pending setup verification succeeds', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      mfaEnabled: false,
+      mfaTotpSecretEnc: null,
+      mfaRecoveryCodes: [],
+    });
+    mfaService.verifyPendingSetup.mockResolvedValue('encrypted-secret');
+    mfaService.generateRecoveryCodes.mockReturnValue({
+      codes: ['AAAA-BBBB-CCCC-DDDD', 'EEEE-FFFF-GGGG-HHHH'],
+      hashes: ['hash1', 'hash2'],
+    });
+    sessionsService.completeMfaChallenge.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'totp',
+    });
+    sessionsService.markReauthenticated.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      reauthenticatedUntil: new Date('2026-03-16T00:05:00.000Z'),
+    });
+
+    const result = await service.verifyMfa(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'none',
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        code: '123456',
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(prismaService.$transaction).toHaveBeenCalled();
+    expect(mfaService.clearPendingSetup).toHaveBeenCalledWith('sess_1');
+    expect(sessionsService.completeMfaChallenge).toHaveBeenCalledWith('sess_1', 'totp');
+    expect(result.recoveryCodes).toEqual(['AAAA-BBBB-CCCC-DDDD', 'EEEE-FFFF-GGGG-HHHH']);
+    expect(result.remainingRecoveryCodes).toBe(2);
+    expect(result.session.reauthenticatedUntil).toBeInstanceOf(Date);
+  });
+
+  it('accepts a recovery code and downgrades the remaining recovery-code count', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      mfaEnabled: true,
+      mfaTotpSecretEnc: 'encrypted-secret',
+      mfaRecoveryCodes: ['hash1', 'hash2'],
+    });
+    mfaService.consumeRecoveryCode.mockResolvedValue({
+      matched: true,
+      remainingHashes: ['hash2'],
+    });
+    sessionsService.completeMfaChallenge.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'recovery',
+    });
+    sessionsService.markReauthenticated.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      reauthenticatedUntil: new Date('2026-03-16T00:05:00.000Z'),
+    });
+
+    const result = await service.verifyMfa(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'none',
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        code: 'AAAA-BBBB-CCCC-DDDD',
+        method: 'recovery_code',
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(mfaService.consumeRecoveryCode).toHaveBeenCalledWith(
+      ['hash1', 'hash2'],
+      'AAAA-BBBB-CCCC-DDDD',
+      {
+        scope: 'recovery',
+        actorId: 'usr_1',
+      },
+    );
+    expect(sessionsService.completeMfaChallenge).toHaveBeenCalledWith('sess_1', 'recovery');
+    expect(result.remainingRecoveryCodes).toBe(1);
+  });
+
+  it('regenerates recovery codes for a user with MFA enabled', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      mfaEnabled: true,
+      mfaTotpSecretEnc: 'encrypted-secret',
+    });
+    mfaService.generateRecoveryCodes.mockReturnValue({
+      codes: ['AAAA-BBBB-CCCC-DDDD'],
+      hashes: ['hash1'],
+    });
+
+    const result = await service.regenerateRecoveryCodes(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'totp',
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(result.recoveryCodes).toEqual(['AAAA-BBBB-CCCC-DDDD']);
+    expect(result.remainingRecoveryCodes).toBe(1);
+  });
+
+  it('disables MFA and revokes other sessions', async () => {
+    prismaService.user.findUnique.mockResolvedValue({
+      id: 'usr_1',
+      mfaEnabled: true,
+    });
+    sessionsService.revokeAllSessions.mockResolvedValue(2);
+    sessionsService.completeMfaChallenge.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'none',
+    });
+
+    const result = await service.disableMfa(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'totp',
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        reason: 'Rotacion de dispositivo',
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(sessionsService.revokeAllSessions).toHaveBeenCalledWith(
+      'usr_1',
+      'mfa-disabled',
+      'sess_1',
+    );
+    expect(result.mfaLevel).toBe('none');
+  });
+
+  it('denies admin MFA reset without a privileged role', async () => {
+    prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.OPERATOR }]);
+
+    await expect(
+      service.adminResetMfa(
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          userId: 'usr_2',
+          reason: 'Incidente',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});

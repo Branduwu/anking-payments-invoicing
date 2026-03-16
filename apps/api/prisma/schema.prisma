@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String               @id @default(cuid())
+  email            String               @unique
+  displayName      String?
+  status           UserStatus           @default(ACTIVE)
+  mfaEnabled       Boolean              @default(false)
+  mfaTotpSecretEnc String?
+  mfaRecoveryCodes String[]             @default([])
+  mfaRecoveryCodesGeneratedAt DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  credentials      PasswordCredential?
+  roles            UserRoleAssignment[]
+  payments         Payment[]
+  invoices         Invoice[]
+  auditEvents      AuditEvent[]
+}
+
+model PasswordCredential {
+  userId            String   @id
+  passwordHash      String
+  passwordChangedAt DateTime @default(now())
+  failedLoginCount  Int      @default(0)
+  lockedUntil       DateTime?
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserRoleAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  role      UserRole
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@index([role])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  userId            String
+  amount            Decimal       @db.Decimal(18, 2)
+  currency          String        @db.VarChar(3)
+  status            PaymentStatus @default(PENDING)
+  bankAccountRef    String
+  externalReference String?
+  concept           String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  settledAt         DateTime?
+  user              User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  userId          String
+  folio           String        @unique
+  status          InvoiceStatus @default(DRAFT)
+  customerTaxId   String
+  currency        String        @db.VarChar(3)
+  subtotal        Decimal       @db.Decimal(18, 2)
+  total           Decimal       @db.Decimal(18, 2)
+  pacReference    String?
+  pacProvider     String?
+  paymentId       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  stampedAt       DateTime?
+  cancelledAt     DateTime?
+  cancellationRef String?
+  user            User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model AuditEvent {
+  id         String      @id @default(cuid())
+  userId     String?
+  requestId  String?
+  ipAddress  String?
+  action     String
+  result     AuditResult
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime    @default(now())
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([result, createdAt])
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  DISABLED
+}
+
+enum UserRole {
+  ADMIN
+  SECURITY
+  FINANCE
+  OPERATOR
+  AUDITOR
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  SETTLED
+  FAILED
+  REVERSED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  STAMPED
+  CANCELLED
+  FAILED
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+  DENIED
+}
