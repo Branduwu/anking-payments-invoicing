@@ -12,6 +12,7 @@ La base actual deja dos workflows en `.github/workflows`:
 
 - `ci.yml`: validacion continua en cada push y pull request
 - `deploy.yml`: liberacion controlada con migraciones y smoke tests post-deploy
+- `neon-preview.yml`: preview database por pull request usando Neon branching
 
 `ci.yml` tambien puede dispararse manualmente con `workflow_dispatch`, lo que sirve para relanzar CI despues de corregir el pipeline o validar el estado de `main` sin crear un commit nuevo.
 
@@ -145,3 +146,31 @@ Antes de desplegar:
 - introducir firmas o attestations de artefactos
 - agregar escaneo SAST y secret scanning al pipeline
 - integrar despliegue real del target que elijas
+
+## Neon preview
+
+`neon-preview.yml` adapta la integracion de Neon a este repo.
+
+Hace esto:
+
+1. crea una branch temporal de base por pull request
+2. expone dos URLs:
+   - pooled para `DATABASE_URL`
+   - direct para `DIRECT_DATABASE_URL`
+3. corre `npm ci`
+4. corre `prisma generate`
+5. corre `build`
+6. corre `test`
+7. corre `lint`
+8. aplica `prisma migrate deploy`
+9. corre `seed:admin`
+10. levanta la API con Redis efimero del runner
+11. corre `scripts/smoke-test.ps1`
+12. al cerrar el PR elimina la branch temporal
+
+Secrets y variables requeridas:
+
+- `secrets.NEON_API_KEY`
+- `vars.NEON_PROJECT_ID`
+
+La integracion de Neon ya crea esos valores en GitHub cuando conectas el repo desde la consola de Neon.

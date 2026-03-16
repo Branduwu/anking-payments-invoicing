@@ -285,6 +285,7 @@ Ajusta al menos:
 - usa la URL pooled de Neon en `DATABASE_URL`
 - usa la URL directa de Neon en `DIRECT_DATABASE_URL`
 - puedes seguir usando `Redis` local o moverlo a un servicio administrado
+- se recomienda usar una base dedicada y vacia para el proyecto, por ejemplo `banking_platform`
 
 Si vas a usar Neon, Prisma queda configurado asi:
 
@@ -408,6 +409,7 @@ Cuando subas esto a GitHub ya tendras base de pipeline:
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/deploy.yml`
+- `.github/workflows/neon-preview.yml`
 - `.github/dependabot.yml`
 
 ### CI
@@ -418,6 +420,16 @@ Cuando subas esto a GitHub ya tendras base de pipeline:
 - `lint`
 - `audit:deps`
 - smoke tests con `PostgreSQL` y `Redis` reales en GitHub Actions
+
+`neon-preview.yml` corre:
+
+- crea una branch temporal en Neon por pull request
+- usa `DATABASE_URL` pooled y `DIRECT_DATABASE_URL` direct de esa branch
+- aplica migraciones Prisma en la branch temporal
+- siembra admin
+- levanta Redis efimero en GitHub Actions
+- arranca la API y ejecuta smoke tests
+- elimina la branch de Neon cuando se cierra el pull request
 
 ### Controlled Release
 
@@ -490,6 +502,12 @@ Usa esto si quieres probar ya con una base mas parecida a nube:
 - `npm.cmd run prisma:migrate:deploy`
 - `npm.cmd run seed:admin`
 - `npm.cmd run validate:local`
+
+Estado validado:
+
+- Neon como PostgreSQL durable
+- Redis local para sesiones, rate limiting y cache
+- `validate:local` verde contra Neon + Redis
 
 ### Ambiente productivo
 

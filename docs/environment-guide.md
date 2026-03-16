@@ -116,6 +116,7 @@ Recomendacion:
 
 - `DATABASE_URL`: URL pooled de Neon para la aplicacion
 - `DIRECT_DATABASE_URL`: URL directa para migraciones Prisma
+- usa una base dedicada y vacia para el proyecto, por ejemplo `banking_platform`
 
 ### Redis
 
@@ -148,6 +149,12 @@ npm.cmd run prisma:migrate:deploy
 npm.cmd run seed:admin
 npm.cmd run validate:local
 ```
+
+Estado ya comprobado en este repo:
+
+- migraciones Prisma aplicadas a Neon
+- admin sembrado correctamente
+- validacion local completa verde con Neon + Redis
 
 ### Notas importantes
 
