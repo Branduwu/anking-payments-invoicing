@@ -28,13 +28,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
           ? exceptionResponse
           : ((exceptionResponse as { message?: string | string[] }).message ??
             exception.message);
+      const responsePayload =
+        typeof exceptionResponse === 'string'
+          ? {}
+          : (exceptionResponse as Record<string, unknown>);
 
       response.status(statusCode).send({
         statusCode,
-        message,
         timestamp,
         path: request.url,
         requestId,
+        ...responsePayload,
+        message,
       });
       return;
     }

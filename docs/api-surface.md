@@ -2,6 +2,20 @@
 
 Prefijo sugerido: `/api`
 
+## Health
+
+### `GET /health/live`
+
+- publica
+- confirma que el proceso esta arriba
+- devuelve metadata del servicio
+
+### `GET /health/ready`
+
+- publica
+- valida `PostgreSQL` y `Redis`
+- devuelve `503` con detalle por dependencia cuando falta alguna
+
 ## Auth
 
 ### `POST /auth/login`

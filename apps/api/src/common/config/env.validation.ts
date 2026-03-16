@@ -3,6 +3,8 @@ import { z } from 'zod';
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_NAME: z.string().min(1).default('banking-platform-api'),
+  APP_VERSION: z.string().min(1).optional(),
+  APP_COMMIT_SHA: z.string().min(1).optional(),
   PORT: z.coerce.number().int().positive().default(4000),
   API_PREFIX: z.string().min(1).default('api'),
   CORS_ORIGIN: z.string().min(1).default('http://localhost:3000'),
@@ -16,6 +18,9 @@ const envSchema = z.object({
   REAUTH_WINDOW_MINUTES: z.coerce.number().int().positive().default(5),
   AUTH_MAX_FAILED_ATTEMPTS: z.coerce.number().int().positive().default(5),
   AUTH_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
+  AUTH_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().positive().default(10),
+  AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
+  AUTH_REAUTH_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   MFA_SETUP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   MFA_VERIFY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   MFA_VERIFY_WINDOW_MINUTES: z.coerce.number().int().positive().default(10),
@@ -42,7 +47,11 @@ const envSchema = z.object({
   AUDIT_FAIL_CLOSED_DEFAULT: z
     .enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])
     .optional(),
+  AUDIT_FAIL_CLOSED_SUCCESS_ACTION_PREFIXES: z.string().optional(),
+  AUDIT_FAIL_CLOSED_FAILURE_ACTION_PREFIXES: z.string().optional(),
+  AUDIT_FAIL_CLOSED_DENIED_ACTION_PREFIXES: z.string().optional(),
   AUDIT_FAIL_CLOSED_ACTION_PREFIXES: z.string().optional(),
+  HTTP_SLOW_REQUEST_THRESHOLD_MS: z.coerce.number().int().positive().default(1000),
   ALLOW_DEGRADED_STARTUP: z
     .enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])
     .optional(),

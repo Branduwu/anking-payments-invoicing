@@ -1,0 +1,125 @@
+name: Controlled Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment protected by GitHub Environments
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      run_migrations:
+        description: Apply Prisma migrations before traffic validation
+        required: true
+        default: true
+        type: boolean
+      run_smoke_tests:
+        description: Execute post-deploy smoke tests against the deployed API
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: controlled-release-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  quality-gate:
+    name: Quality Gate
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify
+        run: npm run verify
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Dependency audit
+        run: npm run audit:deps
+
+  controlled-migrations:
+    name: Controlled Migrations
+    needs: quality-gate
+    if: ${{ inputs.run_migrations }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: prisma-migrations-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: ${{ secrets.DEPLOY_DATABASE_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run controlled migrations
+        shell: pwsh
+        run: ./scripts/deploy-migrations.ps1
+
+  post-deploy-smoke:
+    name: Post-Deploy Smoke
+    needs:
+      - quality-gate
+      - controlled-migrations
+    if: >-
+      ${{
+        inputs.run_smoke_tests &&
+        needs.quality-gate.result == 'success' &&
+        (needs.controlled-migrations.result == 'success' || needs.controlled-migrations.result == 'skipped')
+      }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      DEPLOY_BASE_URL: ${{ secrets.DEPLOY_BASE_URL }}
+      ADMIN_EMAIL: ${{ secrets.SMOKE_ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+      ADMIN_MFA_TOTP_CODE: ${{ secrets.SMOKE_ADMIN_MFA_TOTP_CODE }}
+      ADMIN_MFA_RECOVERY_CODE: ${{ secrets.SMOKE_ADMIN_MFA_RECOVERY_CODE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PowerShell
+        shell: pwsh
+        run: |
+          if (-not $env:DEPLOY_BASE_URL) {
+            throw 'DEPLOY_BASE_URL no esta configurada en el environment de GitHub.'
+          }
+
+      - name: Run smoke tests against deployed environment
+        shell: pwsh
+        run: >
+          ./scripts/smoke-test.ps1
+          -BaseUrl $env:DEPLOY_BASE_URL
+          -Mode full
+          -AdminEmail $env:ADMIN_EMAIL
+          -AdminPassword $env:ADMIN_PASSWORD
+          -AdminMfaTotpCode $env:ADMIN_MFA_TOTP_CODE
+          -AdminMfaRecoveryCode $env:ADMIN_MFA_RECOVERY_CODE

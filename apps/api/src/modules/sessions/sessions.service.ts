@@ -130,7 +130,13 @@ export class SessionsService {
         continue;
       }
 
-      const session = this.deserializeSession(entry[1].toString());
+      const payload = typeof entry[1] === 'string' ? entry[1] : null;
+      if (!payload) {
+        staleSessionIds.push(sessionId);
+        continue;
+      }
+
+      const session = this.deserializeSession(payload);
       const isExpired =
         session.expiresAt.getTime() <= Date.now() || session.absoluteExpiresAt.getTime() <= Date.now();
 

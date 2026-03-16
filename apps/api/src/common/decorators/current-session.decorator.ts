@@ -1,4 +1,5 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { createParamDecorator } from '@nestjs/common';
+import type { ExecutionContext } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../types/authenticated-request.type';
 
 export const CurrentSession = createParamDecorator(
@@ -7,4 +8,3 @@ export const CurrentSession = createParamDecorator(
     return request.session;
   },
 );
-

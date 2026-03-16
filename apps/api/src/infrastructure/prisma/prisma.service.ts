@@ -41,6 +41,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     this.available = true;
   }
 
+  markUnavailable(): void {
+    this.available = false;
+  }
+
   private allowDegradedStartup(): boolean {
     return this.configService.get<boolean>('app.runtime.allowDegradedStartup', { infer: true }) ?? false;
   }

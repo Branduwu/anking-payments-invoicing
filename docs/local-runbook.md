@@ -99,6 +99,23 @@ Si cambiaste `schema.prisma` o migraciones, usa `npm run verify:full` con la API
 
 `verify` y `infra:up` validan explicitamente el codigo de salida de `npm`, Prisma y Docker Compose. Si algo falla, el script termina en rojo en vez de seguir silenciosamente.
 
+### `npm run lint`
+
+Corre `ESLint` sobre el backend con reglas TypeScript y sirve como puerta rapida para errores de mantenibilidad antes del smoke test.
+
+### `npm run audit:deps`
+
+Ejecuta `npm audit --audit-level=moderate` para detectar advisories antes de mergear o desplegar.
+
+### `npm run prisma:migrate:controlled`
+
+Ejecuta migraciones de forma mas segura:
+
+1. valida `DATABASE_URL`
+2. corre `prisma generate`
+3. corre `prisma migrate status`
+4. corre `prisma migrate deploy`
+
 ## Flujo recomendado de desarrollo
 
 ### Flujo rapido
@@ -111,6 +128,8 @@ npm.cmd start
 
 ```powershell
 npm.cmd run verify
+npm.cmd run lint
+npm.cmd run audit:deps
 npm.cmd run infra:up
 npm.cmd run validate:local
 ```
@@ -122,6 +141,9 @@ npm.cmd run validate:local
 - `DATABASE_URL`
 - `REDIS_URL`
 - `ALLOW_DEGRADED_STARTUP`
+- `AUDIT_FAIL_CLOSED_SUCCESS_ACTION_PREFIXES`
+- `AUDIT_FAIL_CLOSED_FAILURE_ACTION_PREFIXES`
+- `AUDIT_FAIL_CLOSED_DENIED_ACTION_PREFIXES`
 
 ### Admin bootstrap
 
@@ -145,15 +167,20 @@ npm.cmd run validate:local
 - `GET /api/health/live`
 - `GET /api/health/ready`
 
+`health/live` ya devuelve metadata del servicio y `health/ready` devuelve checks por dependencia cuando algo falla.
+
 ### Auth
 
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `POST /api/auth/reauthenticate`
 - `POST /api/auth/mfa/setup`
 - `POST /api/auth/mfa/verify`
 - `POST /api/auth/mfa/recovery-codes/regenerate`
 - `POST /api/auth/mfa/disable`
 - `POST /api/auth/mfa/admin/reset`
+
+`login` y `reauthenticate` ya aplican rate limiting con contadores en `Redis`. Si el umbral configurado se supera, la API responde `429`.
 
 ### Sesiones
 
@@ -284,6 +311,12 @@ curl -b cookies.txt \
 - Redis no esta arriba o la URL no es correcta
 - valida `REDIS_URL`
 - corre `npm run infra:up`
+
+### `Too many login attempts. Try again later.`
+
+- se alcanzo el rate limit de `login` o `reauthenticate`
+- espera a que expire la ventana o limpia Redis en entorno de desarrollo
+- revisa si el origen esta teniendo credenciales incorrectas repetidas o automatizacion no deseada
 
 ### `MFA verification required`
 

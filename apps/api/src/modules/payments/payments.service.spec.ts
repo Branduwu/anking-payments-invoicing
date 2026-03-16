@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { PaymentStatus, Prisma, UserRole } from '@prisma/client';
 import { PaymentsService } from './payments.service';
 
@@ -120,6 +120,35 @@ describe('PaymentsService', () => {
         },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('fails closed on denied payment creation if audit persistence becomes unavailable', async () => {
+    prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.SECURITY }]);
+    auditService.record.mockRejectedValue(new ServiceUnavailableException('Audit unavailable'));
+
+    await expect(
+      service.createPayment(
+        {
+          amount: 10,
+          currency: 'MXN',
+          bankAccountRef: 'acct_123',
+        },
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'none',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('lists all payments for finance-like roles', async () => {

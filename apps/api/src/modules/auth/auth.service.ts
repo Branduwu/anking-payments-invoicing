@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -20,6 +21,7 @@ import type { LoginDto } from './dto/login.dto';
 import type { MfaSetupResponseDto } from './dto/mfa-setup-response.dto';
 import type { MfaVerifyDto } from './dto/mfa-verify.dto';
 import type { ReauthenticateDto } from './dto/reauthenticate.dto';
+import { AuthRateLimitService } from './auth-rate-limit.service';
 import { MfaService } from './mfa.service';
 
 interface LoginResult {
@@ -47,11 +49,13 @@ export class AuthService {
     private readonly prismaService: PrismaService,
     private readonly auditService: AuditService,
     private readonly sessionsService: SessionsService,
+    private readonly authRateLimitService: AuthRateLimitService,
     private readonly mfaService: MfaService,
   ) {}
 
   async login(payload: LoginDto, metadata: RequestMetadata): Promise<LoginResult> {
     const email = this.normalizeEmail(payload.email);
+    await this.assertLoginAllowed(email, metadata);
     const user = await this.prismaService.user.findUnique({
       where: { email },
       include: {
@@ -60,6 +64,7 @@ export class AuthService {
     });
 
     if (!user || !user.credentials) {
+      await this.authRateLimitService.registerLoginFailure(email, metadata.ipAddress);
       await this.auditFailure('auth.login.failure', metadata, undefined, {
         reason: 'user-not-found-or-no-credentials',
         email,
@@ -68,6 +73,7 @@ export class AuthService {
     }
 
     if (user.status !== UserStatus.ACTIVE) {
+      await this.authRateLimitService.registerLoginFailure(email, metadata.ipAddress);
       await this.auditFailure('auth.login.denied', metadata, user.id, {
         reason: 'user-not-active',
         status: user.status,
@@ -76,6 +82,7 @@ export class AuthService {
     }
 
     if (user.credentials.lockedUntil && user.credentials.lockedUntil.getTime() > Date.now()) {
+      await this.authRateLimitService.registerLoginFailure(email, metadata.ipAddress);
       await this.auditFailure('auth.login.denied', metadata, user.id, {
         reason: 'credential-lockout',
         lockedUntil: user.credentials.lockedUntil.toISOString(),
@@ -87,6 +94,7 @@ export class AuthService {
 
     if (!passwordIsValid) {
       await this.registerFailedLogin(user.id, user.credentials.failedLoginCount);
+      await this.authRateLimitService.registerLoginFailure(email, metadata.ipAddress);
       await this.auditFailure('auth.login.failure', metadata, user.id, {
         reason: 'invalid-password',
       });
@@ -94,6 +102,7 @@ export class AuthService {
     }
 
     await this.resetFailedLogin(user.id);
+    await this.authRateLimitService.clearLoginFailures(email, metadata.ipAddress);
 
     const session = await this.sessionsService.createSession(
       user.id,
@@ -230,6 +239,7 @@ export class AuthService {
     payload: ReauthenticateDto,
     metadata: RequestMetadata,
   ): Promise<ActiveSession> {
+    await this.assertReauthenticationAllowed(session.userId, metadata);
     const user = await this.prismaService.user.findUnique({
       where: { id: session.userId },
       include: {
@@ -238,6 +248,10 @@ export class AuthService {
     });
 
     if (!user || !user.credentials) {
+      await this.authRateLimitService.registerReauthenticationFailure(
+        session.userId,
+        metadata.ipAddress,
+      );
       await this.auditFailure('auth.reauthenticate.failure', metadata, session.userId, {
         reason: 'user-not-found-or-no-credentials',
       });
@@ -245,6 +259,10 @@ export class AuthService {
     }
 
     if (user.status !== UserStatus.ACTIVE) {
+      await this.authRateLimitService.registerReauthenticationFailure(
+        session.userId,
+        metadata.ipAddress,
+      );
       await this.auditFailure('auth.reauthenticate.denied', metadata, user.id, {
         reason: 'user-not-active',
         status: user.status,
@@ -253,6 +271,10 @@ export class AuthService {
     }
 
     if (user.credentials.lockedUntil && user.credentials.lockedUntil.getTime() > Date.now()) {
+      await this.authRateLimitService.registerReauthenticationFailure(
+        session.userId,
+        metadata.ipAddress,
+      );
       await this.auditFailure('auth.reauthenticate.denied', metadata, user.id, {
         reason: 'credential-lockout',
         lockedUntil: user.credentials.lockedUntil.toISOString(),
@@ -269,6 +291,10 @@ export class AuthService {
     const passwordIsValid = await verify(user.credentials.passwordHash, payload.password);
     if (!passwordIsValid) {
       await this.registerFailedLogin(user.id, user.credentials.failedLoginCount);
+      await this.authRateLimitService.registerReauthenticationFailure(
+        session.userId,
+        metadata.ipAddress,
+      );
       await this.auditFailure('auth.reauthenticate.failure', metadata, user.id, {
         reason: 'invalid-password',
       });
@@ -276,6 +302,10 @@ export class AuthService {
     }
 
     await this.resetFailedLogin(user.id);
+    await this.authRateLimitService.clearReauthenticationFailures(
+      session.userId,
+      metadata.ipAddress,
+    );
 
     const updatedSession = await this.sessionsService.markReauthenticated(session.id);
     if (!updatedSession) {
@@ -686,6 +716,53 @@ export class AuthService {
 
   private invalidCredentialsError(): UnauthorizedException {
     return new UnauthorizedException('Invalid credentials');
+  }
+
+  private isTooManyRequestsError(error: unknown): boolean {
+    return error instanceof HttpException && error.getStatus() === 429;
+  }
+
+  private async assertLoginAllowed(email: string, metadata: RequestMetadata): Promise<void> {
+    try {
+      await this.authRateLimitService.assertLoginAllowed(email, metadata.ipAddress);
+    } catch (error) {
+      if (this.isTooManyRequestsError(error)) {
+        await this.auditService.record({
+          action: 'auth.login.rate_limited',
+          result: 'DENIED',
+          requestId: metadata.requestId,
+          ipAddress: metadata.ipAddress,
+          metadata: {
+            email,
+          },
+        });
+      }
+
+      throw error;
+    }
+  }
+
+  private async assertReauthenticationAllowed(
+    userId: string,
+    metadata: RequestMetadata,
+  ): Promise<void> {
+    try {
+      await this.authRateLimitService.assertReauthenticationAllowed(userId, metadata.ipAddress);
+    } catch (error) {
+      if (this.isTooManyRequestsError(error)) {
+        await this.auditService.record({
+          action: 'auth.reauthenticate.rate_limited',
+          result: 'DENIED',
+          userId,
+          requestId: metadata.requestId,
+          ipAddress: metadata.ipAddress,
+          entityType: 'user',
+          entityId: userId,
+        });
+      }
+
+      throw error;
+    }
   }
 
   private async auditFailure(

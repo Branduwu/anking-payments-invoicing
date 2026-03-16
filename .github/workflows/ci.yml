@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  quality:
+    name: Quality Gate
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify
+        run: npm run verify
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Dependency audit
+        run: npm run audit:deps
+
+  smoke:
+    name: Smoke Tests
+    needs: quality
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: platform
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      APP_NAME: banking-platform-api
+      APP_VERSION: ci
+      APP_COMMIT_SHA: ${{ github.sha }}
+      PORT: 4000
+      API_PREFIX: api
+      CORS_ORIGIN: http://localhost:3000
+      COOKIE_NAME: __Host-session
+      COOKIE_SECRET: ci-cookie-secret-ci-cookie-secret-1234
+      COOKIE_SECURE: false
+      SESSION_IDLE_TIMEOUT_MINUTES: 15
+      SESSION_ABSOLUTE_TIMEOUT_HOURS: 8
+      REAUTH_WINDOW_MINUTES: 5
+      DATABASE_URL: postgresql://platform:platform@127.0.0.1:5432/platform
+      REDIS_URL: redis://127.0.0.1:6379
+      REDIS_KEY_PREFIX: platform
+      AUTH_MAX_FAILED_ATTEMPTS: 5
+      AUTH_LOCKOUT_MINUTES: 15
+      MFA_SETUP_TTL_MINUTES: 10
+      MFA_VERIFY_MAX_ATTEMPTS: 5
+      MFA_VERIFY_WINDOW_MINUTES: 10
+      MFA_VERIFY_LOCKOUT_MINUTES: 15
+      MFA_ENCRYPTION_KEY: ci-mfa-secret-ci-mfa-secret-ci-mfa-1234
+      AUDIT_FAIL_CLOSED_DEFAULT: false
+      AUDIT_FAIL_CLOSED_ACTION_PREFIXES: sessions.,payments.create.success,invoices.create.success,invoices.stamp.success,invoices.cancel.success,auth.mfa.setup.created,auth.mfa.verify.success,auth.mfa.recovery_codes.regenerated,auth.mfa.disabled,auth.mfa.admin_reset.success
+      HTTP_SLOW_REQUEST_THRESHOLD_MS: 1000
+      ALLOW_DEGRADED_STARTUP: false
+      PAC_PROVIDER: mock
+      PAC_ALLOW_MOCK_IN_PRODUCTION: false
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: ChangeMeNow_123456789!
+      ADMIN_NAME: CI Admin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npm run prisma:migrate:deploy
+
+      - name: Seed admin
+        run: npm run seed:admin
+
+      - name: Start API
+        shell: bash
+        run: |
+          nohup npm --workspace apps/api run start > api.log 2>&1 &
+          echo $! > api.pid
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4000/api/health/live > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat api.log
+          exit 1
+
+      - name: Smoke test
+        shell: pwsh
+        run: ./scripts/smoke-test.ps1 -BaseUrl 'http://127.0.0.1:4000' -Mode full
+
+      - name: Print API logs
+        if: always()
+        shell: bash
+        run: |
+          if [ -f api.log ]; then
+            cat api.log
+          fi
+
+      - name: Stop API
+        if: always()
+        shell: bash
+        run: |
+          if [ -f api.pid ]; then
+            kill "$(cat api.pid)" || true
+          fi

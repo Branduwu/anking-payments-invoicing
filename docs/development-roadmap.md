@@ -1,6 +1,10 @@
 # Roadmap de desarrollo
 
+Este documento conserva la hoja de ruta original, pero ahora incluye el estado real de ejecucion del proyecto.
+
 ## Fase 1. Fundacion del repositorio
+
+Estado actual: completada
 
 Entregables:
 
@@ -14,7 +18,14 @@ Criterio de salida:
 
 - un desarrollador nuevo puede levantar el proyecto localmente con pasos documentados
 
+Estado observado:
+
+- cumplido con `README`, `.env.example`, `docker-compose.yml`, scripts y runbook local
+- existe base para CI/CD y documentacion operativa
+
 ## Fase 2. Identidad y usuarios
+
+Estado actual: completada
 
 Entregables:
 
@@ -28,7 +39,16 @@ Criterio de salida:
 
 - existe login con validacion real de credenciales y trazabilidad completa
 
+Estado observado:
+
+- login real implementado
+- bootstrap admin implementado
+- `Argon2` activo
+- lockout de credenciales activo
+
 ## Fase 3. Sesiones stateful
+
+Estado actual: completada
 
 Entregables:
 
@@ -43,7 +63,16 @@ Criterio de salida:
 
 - el backend revoca sesiones de forma inmediata y consistente
 
+Estado observado:
+
+- sesiones en `Redis`
+- revocacion individual y total
+- rotacion de sesion
+- idle timeout y absolute timeout
+
 ## Fase 4. MFA y reautenticacion
+
+Estado actual: completada como base funcional
 
 Entregables:
 
@@ -56,7 +85,17 @@ Criterio de salida:
 
 - pagos y facturacion ya no pueden ejecutarse sin sesion valida y contexto reforzado
 
+Estado observado:
+
+- TOTP activo
+- recovery codes activos
+- reset y disable de MFA activos
+- reautenticacion activa
+- pendiente WebAuthn/passkeys
+
 ## Fase 5. Pagos
+
+Estado actual: completada como base operativa
 
 Entregables:
 
@@ -69,7 +108,16 @@ Criterio de salida:
 
 - cada cobro deja evidencia completa, trazable y auditable
 
+Estado observado:
+
+- pagos persistidos
+- auditoria durable
+- permisos y reautenticacion conectados
+- pendiente integracion bancaria real
+
 ## Fase 6. Facturacion y timbrado
+
+Estado actual: completada como base tecnica
 
 Entregables:
 
@@ -82,7 +130,17 @@ Criterio de salida:
 
 - la plataforma soporta emision, seguimiento y cancelacion con auditoria
 
+Estado observado:
+
+- factura `DRAFT`
+- timbrado `STAMPED`
+- cancelacion `CANCELLED`
+- PAC abstracto ya integrado
+- pendiente PAC fiscal real vendor-specific
+
 ## Fase 7. Endurecimiento
+
+Estado actual: avanzada
 
 Entregables:
 
@@ -95,3 +153,13 @@ Entregables:
 Criterio de salida:
 
 - el sistema cuenta con controles preventivos y detective basicos para un entorno serio
+
+Estado observado:
+
+- rate limiting de `login` y `reauthenticate`
+- throttling MFA
+- observabilidad base
+- smoke tests
+- CI/CD
+- runbooks operativos
+- pendiente observabilidad real, alertas reales y endurecimiento adicional segun despliegue final

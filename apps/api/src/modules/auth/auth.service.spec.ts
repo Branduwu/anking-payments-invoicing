@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   UnauthorizedException,
 } from '@nestjs/common';
 import { UserRole, UserStatus } from '@prisma/client';
@@ -68,6 +70,15 @@ describe('AuthService', () => {
     consumeRecoveryCode: jest.fn(),
   };
 
+  const authRateLimitService = {
+    assertLoginAllowed: jest.fn(),
+    registerLoginFailure: jest.fn(),
+    clearLoginFailures: jest.fn(),
+    assertReauthenticationAllowed: jest.fn(),
+    registerReauthenticationFailure: jest.fn(),
+    clearReauthenticationFailures: jest.fn(),
+  };
+
   let service: AuthService;
 
   beforeEach(() => {
@@ -83,6 +94,7 @@ describe('AuthService', () => {
       prismaService as never,
       auditService as never,
       sessionsService as never,
+      authRateLimitService as never,
       mfaService as never,
     );
   });
@@ -124,6 +136,14 @@ describe('AuthService', () => {
       where: { email: 'admin@example.com' },
       include: { credentials: true },
     });
+    expect(authRateLimitService.assertLoginAllowed).toHaveBeenCalledWith(
+      'admin@example.com',
+      '127.0.0.1',
+    );
+    expect(authRateLimitService.clearLoginFailures).toHaveBeenCalledWith(
+      'admin@example.com',
+      '127.0.0.1',
+    );
     expect(sessionsService.createSession).toHaveBeenCalledWith(
       'usr_1',
       expect.objectContaining({
@@ -167,6 +187,37 @@ describe('AuthService', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
 
     expect(prismaService.passwordCredential.update).toHaveBeenCalled();
+    expect(authRateLimitService.registerLoginFailure).toHaveBeenCalledWith(
+      'admin@example.com',
+      '127.0.0.1',
+    );
+  });
+
+  it('blocks login attempts once the auth rate limit is exceeded', async () => {
+    authRateLimitService.assertLoginAllowed.mockRejectedValue(
+      new HttpException('Too many login attempts. Try again later.', HttpStatus.TOO_MANY_REQUESTS),
+    );
+
+    await expect(
+      service.login(
+        {
+          email: 'admin@example.com',
+          password: 'super-secret-123',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(HttpException);
+
+    expect(prismaService.user.findUnique).not.toHaveBeenCalled();
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.login.rate_limited',
+        result: 'DENIED',
+      }),
+    );
   });
 
   it('returns the current user profile with roles and recovery-code count', async () => {
@@ -229,6 +280,51 @@ describe('AuthService', () => {
         },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(authRateLimitService.assertReauthenticationAllowed).toHaveBeenCalledWith(
+      'usr_1',
+      '127.0.0.1',
+    );
+  });
+
+  it('blocks reauthentication attempts once the auth rate limit is exceeded', async () => {
+    authRateLimitService.assertReauthenticationAllowed.mockRejectedValue(
+      new HttpException(
+        'Too many reauthentication attempts. Try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      ),
+    );
+
+    await expect(
+      service.reauthenticate(
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          password: 'super-secret-123',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(HttpException);
+
+    expect(prismaService.user.findUnique).not.toHaveBeenCalled();
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.reauthenticate.rate_limited',
+        result: 'DENIED',
+        userId: 'usr_1',
+      }),
+    );
   });
 
   it('creates an MFA setup for a valid user without MFA enabled', async () => {

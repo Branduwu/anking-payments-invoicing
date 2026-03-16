@@ -94,17 +94,23 @@ export class AuditService {
       return true;
     }
 
-    if (event.result !== 'SUCCESS') {
-      return false;
-    }
+    const prefixes = this.getConfiguredPrefixes(event.result);
+    return prefixes.some((prefix: string) => event.action.startsWith(prefix));
+  }
 
-    const configuredPrefixes = this.configService.get<string[] | string>(
-      'app.audit.failClosedActionPrefixes',
-      {
-        infer: true,
-      },
-    );
-    const prefixes = Array.isArray(configuredPrefixes)
+  private getConfiguredPrefixes(result: AuditResultValue): string[] {
+    const configKey =
+      result === 'SUCCESS'
+        ? 'app.audit.failClosedSuccessActionPrefixes'
+        : result === 'FAILURE'
+          ? 'app.audit.failClosedFailureActionPrefixes'
+          : 'app.audit.failClosedDeniedActionPrefixes';
+
+    const configuredPrefixes = this.configService.get<string[] | string>(configKey, {
+      infer: true,
+    });
+
+    const normalized = Array.isArray(configuredPrefixes)
       ? configuredPrefixes
       : typeof configuredPrefixes === 'string'
         ? configuredPrefixes
@@ -113,6 +119,28 @@ export class AuditService {
             .filter(Boolean)
         : [];
 
-    return prefixes.some((prefix: string) => event.action.startsWith(prefix));
+    if (normalized.length > 0) {
+      return normalized;
+    }
+
+    if (result === 'SUCCESS') {
+      const legacyPrefixes = this.configService.get<string[] | string>(
+        'app.audit.failClosedActionPrefixes',
+        {
+          infer: true,
+        },
+      );
+
+      return Array.isArray(legacyPrefixes)
+        ? legacyPrefixes
+        : typeof legacyPrefixes === 'string'
+          ? legacyPrefixes
+              .split(',')
+              .map((prefix) => prefix.trim())
+              .filter(Boolean)
+          : [];
+    }
+
+    return [];
   }
 }

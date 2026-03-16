@@ -32,7 +32,7 @@ export class PaymentsService {
     metadata: RequestMetadata,
   ): Promise<{ payment: PaymentView; message: string }> {
     const roles = await this.getUserRoles(session.userId);
-    this.assertCanCreatePayment(roles, session.userId, metadata);
+    await this.assertCanCreatePayment(roles, session.userId, metadata);
 
     const payment = await this.prismaService.$transaction(async (tx) => {
       const createdPayment = await tx.payment.create({
@@ -122,18 +122,18 @@ export class PaymentsService {
     return roles.map((entry) => entry.role);
   }
 
-  private assertCanCreatePayment(
+  private async assertCanCreatePayment(
     roles: UserRole[],
     userId: string,
     metadata: RequestMetadata,
-  ): void {
+  ): Promise<void> {
     const allowed = roles.some((role) => this.createPaymentRoles.includes(role));
 
     if (allowed) {
       return;
     }
 
-    void this.auditService.record({
+    await this.auditService.record({
       action: 'payments.create.denied',
       result: 'DENIED',
       userId,

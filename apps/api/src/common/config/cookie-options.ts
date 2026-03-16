@@ -1,4 +1,4 @@
-import { ConfigService } from '@nestjs/config';
+import type { ConfigService } from '@nestjs/config';
 
 export const getSessionCookieOptions = (configService: ConfigService) => ({
   httpOnly: true,
@@ -6,4 +6,3 @@ export const getSessionCookieOptions = (configService: ConfigService) => ({
   secure: configService.get<boolean>('app.cookie.secure', { infer: true }) ?? false,
   path: configService.get<string>('app.cookie.path', { infer: true }) ?? '/',
 });
-

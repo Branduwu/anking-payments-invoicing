@@ -4,77 +4,103 @@ Fecha de referencia: 2026-03-16
 
 ## Hallazgos actuales
 
-### 1. La auditoria critica ya endurecio sus rutas principales, pero no todo el sistema esta en modo fail-closed
+### 1. El PAC productivo todavia no esta integrado
 
-Archivos: `apps/api/src/modules/audit/audit.service.ts`, `apps/api/src/modules/sessions/sessions.service.ts`, `apps/api/src/modules/payments/payments.service.ts`, `apps/api/src/modules/invoices/invoices.service.ts`
+Archivos:
 
-- `payments` e `invoices` ya persisten auditoria dentro de transacciones Prisma
-- la creacion y revocacion de sesiones ya fuerzan persistencia o revierten el cambio
-- todavia existen eventos no criticos de lectura, denegacion o telemetria que siguen en modo best effort
+- `apps/api/src/modules/invoices/pac.service.ts`
+- `apps/api/src/modules/invoices/invoices.service.ts`
 
-Impacto:
+Estado:
 
-- la trazabilidad de mutaciones sensibles mejoro de forma sustancial
-- aun no todo el universo de eventos esta bajo una politica uniforme de fallo cerrado
-
-### 2. La automatizacion local ya valida mejor sus fallos, pero sigue dependiendo de credenciales operativas correctas
-
-Archivos: `scripts/verify.ps1`, `scripts/start-infra.ps1`, `scripts/validate-local.ps1`, `scripts/smoke-test.ps1`
-
-- los scripts ya validan exit codes de `npm` y `docker compose` en puntos criticos
-- `validate:local` ahora falla de inmediato si la API muere antes de quedar lista
-- `smoke:test` ya soporta MFA via `ADMIN_MFA_TOTP_CODE` o `ADMIN_MFA_RECOVERY_CODE`
-- aun depende de que las credenciales y, en su caso, el codigo MFA vigente esten configurados correctamente para la corrida
+- el flujo de timbrado ya existe
+- el proveedor `mock` ya no puede usarse en produccion por accidente
+- `custom-http` ya permite adaptador externo
+- aun falta el adaptador vendor-specific real con mapeo CFDI completo
 
 Impacto:
 
-- se redujo el riesgo de falsos positivos en validaciones locales
-- aun existe dependencia operativa de secretos locales y de infraestructura viva
+- la arquitectura ya soporta timbrado
+- aun no esta lista para fiscal real de produccion
 
-### 3. MFA ya cubre TOTP, recovery codes, disable y reset, pero aun faltan controles avanzados
+### 2. MFA ya es operativo, pero aun no llega a su postura maxima
 
-Archivos: `apps/api/src/modules/auth/auth.service.ts`, `apps/api/src/modules/auth/mfa.service.ts`
+Archivos:
 
-- ya existe alta de MFA TOTP, verificacion, recovery codes, deshabilitacion y reseteo administrativo
-- ya existe throttling especifico y lockout temporal para TOTP, recovery code y pending setup
-- no existe todavia WebAuthn/passkeys
+- `apps/api/src/modules/auth/auth.service.ts`
+- `apps/api/src/modules/auth/mfa.service.ts`
 
-Impacto:
+Estado:
 
-- operativamente el modulo ya cubre el ciclo principal de MFA
-- aun faltan controles de fortaleza y UX para una postura mas madura
-
-### 4. Facturacion ya incorpora timbrado, pero sigue faltando una integracion PAC vendor-specific de produccion
-
-Archivos: `apps/api/src/modules/invoices/invoices.service.ts`, `apps/api/src/modules/invoices/pac.service.ts`
-
-- ya hay creacion, listado, `stamp` y cancelacion persistidos en Prisma
-- el sistema soporta proveedor PAC configurable en modo `mock` o `custom-http`
-- aun no existe adaptador especifico para un PAC real con mapeo completo de CFDI
+- TOTP, recovery codes, disable y admin reset ya existen
+- ya hay throttling y lockout
+- `login` y `reauthenticate` ya tienen rate limiting en `Redis` por correo/usuario e IP
+- aun falta WebAuthn/passkeys
 
 Impacto:
 
-- el modulo ya no es solo persistencia local
-- todavia falta el paso final para produccion fiscal real
+- seguridad operativa buena
+- seguridad de autenticacion aun no es la maxima posible para cuentas criticas
 
-## Mejoras realizadas en este ciclo
+### 3. La auditoria durable mejoro, pero sigue sin ser fail-closed para todo el universo de eventos
 
-- `payments` ya persiste con auditoria transaccional en Prisma
-- `invoices` ya persiste con creacion, listado, timbrado y cancelacion
-- se implemento MFA TOTP con setup, verificacion, recovery codes, disable y reset administrativo
-- se agrego `start:local` para levantar flujo local desde la raiz
-- `npm start` ahora apunta a `start:local`
-- el arranque local soporta modo degradado si no hay PostgreSQL/Redis ni Docker, sin spam repetitivo de Redis
-- se agregaron scripts `test` y `verify`
-- se corrigio el manejo de exit codes en scripts PowerShell para que errores de Prisma, npm o Docker no pasen silenciosamente
-- `smoke:test` ya puede validar cuentas con MFA si recibe codigo TOTP o recovery code
-- el contenedor de `api` ya arranca la aplicacion compilada y no watch mode
-- se elimino la dependencia de `@nestjs/cli` y `@nestjs/schematics` del flujo local de build/dev
-- MFA ahora aplica throttling y lockout temporal por intentos invalidos
-- el proveedor `mock` del PAC ya no puede usarse en produccion por accidente salvo override explicito
-- se agrego `.dockerignore` para reducir contexto de build y evitar copiar artefactos locales al contenedor
-- se incorporaron pruebas unitarias para `auth`, `payments`, `invoices` y guardas de sesion
-- se corrigio la carga de `.env` para ejecucion desde raiz y desde `apps/api`
+Archivos:
+
+- `apps/api/src/modules/audit/audit.service.ts`
+- `apps/api/src/modules/sessions/sessions.service.ts`
+- `apps/api/src/modules/payments/payments.service.ts`
+- `apps/api/src/modules/invoices/invoices.service.ts`
+
+Estado:
+
+- sesiones, pagos y facturas sensibles ya endurecieron sus rutas criticas
+- fallos y denegaciones sensibles de `auth` y creacion denegada de `payments` ya pueden endurecerse por prefijos separados
+- aun hay eventos no criticos que siguen en best effort
+
+Impacto:
+
+- las mutaciones de mayor riesgo estan mucho mejor protegidas
+- la postura de auditoria ya es mas consistente para rutas de seguridad, pero aun no es uniforme para todos los eventos
+
+### 4. La base operativa ya existe, pero falta conectarla a observabilidad productiva real
+
+Archivos:
+
+- `apps/api/src/modules/health/health.controller.ts`
+- `apps/api/src/modules/health/health.service.ts`
+- `apps/api/src/common/interceptors/request-logging.interceptor.ts`
+- `.github/workflows/ci.yml`
+- `.github/workflows/deploy.yml`
+
+Estado:
+
+- ya hay `health/live` y `health/ready` con detalle por dependencia
+- ya hay request logs estructurados
+- ya existe CI y workflow de release controlado
+- faltan backend real de metricas, alertas y plataforma final de despliegue
+
+Impacto:
+
+- el repo ya no depende de memoria tribal para operar
+- aun falta la integracion final con tooling productivo
+
+## Mejoras aplicadas en este ciclo
+
+- se agrego lint real con `eslint.config.mjs`
+- se agregaron scripts raiz de `lint`, `audit:deps`, `prisma:migrate:status` y `prisma:migrate:controlled`
+- se incorporo `scripts/deploy-migrations.ps1`
+- se definio `ci.yml` con verify, lint, audit y smoke tests
+- se definio `deploy.yml` con quality gate, migraciones controladas y smoke post-deploy
+- se agrego `dependabot.yml`
+- `health/live` y `health/ready` ahora reportan metadata y checks por dependencia
+- se agrego logging estructurado de requests
+- se corrigio la clasificacion de errores controlados para que `503` operativos se registren como `warn` y no como `500` inesperados
+- la politica fail-closed de auditoria ahora distingue prefijos por `SUCCESS`, `FAILURE` y `DENIED`
+- `payments.create.denied` ya no usa fire-and-forget y respeta fail-closed real
+- `RedisService` ahora actualiza mejor su estado de disponibilidad
+- se agregaron runbooks de incidente, revocacion, rotacion y despliegue
+- se amplio el `README` y la documentacion operativa
+- `auth` ahora aplica rate limiting real para `login` y `reauthenticate` con trazabilidad de eventos `rate_limited`
 
 ## Dependencias
 
@@ -84,19 +110,19 @@ Estado actual de `npm audit`:
 
 ## Como usar esta auditoria
 
-Usa este documento como backlog vivo de endurecimiento:
-
-1. toma un hallazgo
-2. confirma si sigue vigente en codigo
-3. define severidad y alcance
-4. corrige el problema
-5. agrega o ajusta prueba si aplica
-6. corre `npm run verify`
-7. actualiza este archivo y `README.md`
+1. elegir un hallazgo
+2. confirmarlo en codigo
+3. definir severidad
+4. aplicar fix tecnico u operativo
+5. agregar pruebas si aplica
+6. correr `npm run verify`
+7. correr `npm run lint`
+8. correr `npm run validate:local`
+9. actualizar este archivo y `README.md`
 
 ## Recomendacion de siguiente fase
 
-1. elegir e integrar un PAC real con contrato CFDI productivo
-2. agregar WebAuthn/passkeys para roles criticos
-3. extender la politica fail-closed a eventos no criticos si el requisito operativo lo demanda
-4. ampliar pruebas end-to-end y de integracion real
+1. elegir e integrar un PAC real
+2. agregar WebAuthn/passkeys
+3. conectar logs y metricas a observabilidad real
+4. endurecer aun mas la politica fail-closed de auditoria

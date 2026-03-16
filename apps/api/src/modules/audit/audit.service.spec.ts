@@ -15,6 +15,18 @@ describe('AuditService', () => {
         return false;
       }
 
+      if (path === 'app.audit.failClosedSuccessActionPrefixes') {
+        return ['payments.create.success', 'auth.mfa.verify.success'];
+      }
+
+      if (path === 'app.audit.failClosedFailureActionPrefixes') {
+        return ['auth.login.failure'];
+      }
+
+      if (path === 'app.audit.failClosedDeniedActionPrefixes') {
+        return ['payments.create.denied', 'auth.mfa.admin_reset.denied'];
+      }
+
       if (path === 'app.audit.failClosedActionPrefixes') {
         return ['payments.create.success', 'auth.mfa.verify.success'];
       }
@@ -49,6 +61,24 @@ describe('AuditService', () => {
         result: 'DENIED',
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('fails closed for configured failure actions', async () => {
+    await expect(
+      service.record({
+        action: 'auth.login.failure',
+        result: 'FAILURE',
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('fails closed for configured denied actions', async () => {
+    await expect(
+      service.record({
+        action: 'payments.create.denied',
+        result: 'DENIED',
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('honors an explicit failClosed override', async () => {

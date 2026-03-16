@@ -31,6 +31,15 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       enableOfflineQueue: !this.degradedStartupAllowed,
     });
 
+    this.client.on('ready', () => {
+      this.available = true;
+    });
+    this.client.on('end', () => {
+      this.available = false;
+    });
+    this.client.on('close', () => {
+      this.available = false;
+    });
     this.client.on('error', (error) => {
       const message = error instanceof Error && error.message ? error.message : 'connection unavailable';
 
@@ -80,6 +89,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   isAvailable(): boolean {
     return this.available;
+  }
+
+  markAvailable(): void {
+    this.available = true;
+  }
+
+  markUnavailable(): void {
+    this.available = false;
   }
 
   assertAvailable(): void {

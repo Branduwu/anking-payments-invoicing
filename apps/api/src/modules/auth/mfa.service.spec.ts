@@ -1,4 +1,5 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpStatus } from '@nestjs/common';
+import type { HttpException } from '@nestjs/common';
 import { MfaService } from './mfa.service';
 
 jest.mock('otplib', () => ({
@@ -88,8 +89,8 @@ describe('MfaService', () => {
     expect(encryptedSecret).toBeNull();
 
     const payload = privateApi.encryptSecret('SECRET');
-    const otplib = require('otplib') as { verify: jest.Mock };
-    otplib.verify.mockResolvedValue({ valid: false });
+    const mockedOtpLib = require('otplib') as unknown as { verify: jest.Mock };
+    mockedOtpLib.verify.mockResolvedValue({ valid: false });
 
     await expect(
       service.verifyEncryptedSecret(payload, '111111', {

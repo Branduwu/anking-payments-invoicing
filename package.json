@@ -9,6 +9,8 @@
     "start": "npm run start:local",
     "build": "npm run build:api",
     "build:api": "npm --workspace apps/api run build",
+    "lint": "npm run lint:api",
+    "lint:api": "npm --workspace apps/api run lint",
     "dev": "npm run dev:api",
     "dev:api": "npm --workspace apps/api run start:dev",
     "start:local": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-local.ps1",
@@ -20,9 +22,13 @@
     "verify": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify.ps1",
     "verify:full": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify.ps1 -ForcePrismaGenerate",
     "validate:local": "powershell -ExecutionPolicy Bypass -File .\\scripts\\validate-local.ps1",
+    "ci": "npm run verify && npm run lint",
+    "audit:deps": "npm audit --audit-level=moderate",
     "prisma:generate": "npm --workspace apps/api run prisma:generate",
     "prisma:migrate:dev": "npm --workspace apps/api run prisma:migrate:dev",
+    "prisma:migrate:status": "npm --workspace apps/api run prisma:migrate:status",
     "prisma:migrate:deploy": "npm --workspace apps/api run prisma:migrate:deploy",
+    "prisma:migrate:controlled": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-migrations.ps1",
     "seed:admin": "npm --workspace apps/api run seed:admin"
   }
 }
