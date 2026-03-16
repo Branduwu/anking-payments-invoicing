@@ -13,6 +13,8 @@ La base actual deja dos workflows en `.github/workflows`:
 - `ci.yml`: validacion continua en cada push y pull request
 - `deploy.yml`: liberacion controlada con migraciones y smoke tests post-deploy
 
+`ci.yml` tambien puede dispararse manualmente con `workflow_dispatch`, lo que sirve para relanzar CI despues de corregir el pipeline o validar el estado de `main` sin crear un commit nuevo.
+
 ## CI
 
 El workflow `ci.yml` corre en dos etapas:
