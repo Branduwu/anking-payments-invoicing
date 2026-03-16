@@ -24,6 +24,7 @@ El workflow `ci.yml` corre en dos etapas:
    - `npm run audit:deps`
 2. `smoke`
    - levanta `PostgreSQL` y `Redis` como services de GitHub Actions
+   - ejecuta `prisma generate`
    - aplica `prisma migrate deploy`
    - ejecuta `seed:admin`
    - arranca la API
@@ -34,6 +35,18 @@ El workflow `ci.yml` corre en dos etapas:
 - `quality` da una puerta rapida para build, Prisma y unit tests
 - `smoke` valida el comportamiento contra dependencias reales
 - si `quality` falla, no se consumen recursos del job de smoke
+- `smoke` genera Prisma de forma explicita para que el seed y la API no dependan del orden externo del pipeline
+
+### Semantica de `seed:admin`
+
+El script `seed:admin` del workspace `apps/api` ahora ejecuta `prisma generate` antes del bootstrap administrativo.
+
+Esto protege dos escenarios:
+
+- ejecucion aislada local o en CI despues de `npm ci`
+- jobs donde el cliente Prisma aun no ha sido generado para el esquema actual
+
+Con eso se evita que `ts-node` falle al compilar el seed por ausencia de enums o tipos generados como `UserRole` o `UserStatus`.
 
 ## CD
 
