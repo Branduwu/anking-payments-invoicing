@@ -9,6 +9,7 @@ $apiRoot = Join-Path $repoRoot 'apps/api'
 $rootEnvPath = Join-Path $repoRoot '.env'
 $apiEnvPath = Join-Path $apiRoot '.env'
 $envTemplatePath = Join-Path $repoRoot '.env.example'
+$envValues = @{}
 
 function Invoke-CheckedCommand {
   param(
@@ -71,6 +72,62 @@ function Test-PortReady {
   return [bool]$result.TcpTestSucceeded
 }
 
+function Read-EnvValues {
+  param([string]$Path)
+
+  $values = @{}
+  if (-not (Test-Path $Path)) {
+    return $values
+  }
+
+  foreach ($line in Get-Content -Path $Path) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith('#') -or -not $trimmed.Contains('=')) {
+      continue
+    }
+
+    $parts = $trimmed -split '=', 2
+    $values[$parts[0]] = $parts[1]
+  }
+
+  return $values
+}
+
+function Get-ServiceTarget {
+  param(
+    [string]$Url,
+    [int]$DefaultPort
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Url)) {
+    return [pscustomobject]@{
+      Host = 'localhost'
+      Port = $DefaultPort
+      IsLocal = $true
+    }
+  }
+
+  $uri = [System.Uri]$Url
+  $port = if ($uri.IsDefaultPort) { $DefaultPort } else { $uri.Port }
+  $isLocalHost = @('localhost', '127.0.0.1', '::1') -contains $uri.Host
+
+  return [pscustomobject]@{
+    Host = $uri.Host
+    Port = $port
+    IsLocal = $isLocalHost
+  }
+}
+
+function Test-ServiceReachable {
+  param(
+    [string]$HostName,
+    [int]$Port
+  )
+
+  $result = Test-NetConnection $HostName -Port $Port -WarningAction SilentlyContinue
+  return [bool]$result.TcpTestSucceeded
+}
+
 function Wait-PortReady {
   param(
     [int]$Port,
@@ -124,11 +181,17 @@ function Print-DockerServiceLogs {
 Ensure-EnvFile -TargetPath $rootEnvPath -SourcePath $envTemplatePath
 Sync-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
 
-$postgresReady = Test-PortReady -Port 5432
-$redisReady = Test-PortReady -Port 6379
-$usedDockerCompose = $false
+$envValues = Read-EnvValues -Path $rootEnvPath
+$databaseTarget = Get-ServiceTarget -Url $envValues['DIRECT_DATABASE_URL'] -DefaultPort 5432
+$redisTarget = Get-ServiceTarget -Url $envValues['REDIS_URL'] -DefaultPort 6379
 
-if (-not $postgresReady -or -not $redisReady) {
+$postgresReady = Test-ServiceReachable -HostName $databaseTarget.Host -Port $databaseTarget.Port
+$redisReady = Test-ServiceReachable -HostName $redisTarget.Host -Port $redisTarget.Port
+$usedDockerCompose = $false
+$needsLocalPostgres = $databaseTarget.IsLocal -and -not $postgresReady
+$needsLocalRedis = $redisTarget.IsLocal -and -not $redisReady
+
+if ($needsLocalPostgres -or $needsLocalRedis) {
   $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
 
   if (-not $dockerCommand) {
@@ -137,17 +200,40 @@ if (-not $postgresReady -or -not $redisReady) {
 
   Push-Location $repoRoot
   try {
-    Invoke-CheckedCommand -FilePath $dockerCommand.Source -Arguments @('compose', 'up', '-d', 'postgres', 'redis') -ErrorMessage 'Docker Compose no pudo levantar PostgreSQL y Redis.'
+    $composeServices = @()
+    if ($needsLocalPostgres) {
+      $composeServices += 'postgres'
+    }
+    if ($needsLocalRedis) {
+      $composeServices += 'redis'
+    }
+
+    Invoke-CheckedCommand -FilePath $dockerCommand.Source -Arguments @('compose', 'up', '-d') + $composeServices -ErrorMessage 'Docker Compose no pudo levantar PostgreSQL y Redis.'
     $usedDockerCompose = $true
   }
   finally {
     Pop-Location
   }
 
-  Wait-PortReady -Port 5432
-  Wait-PortReady -Port 6379
-  Wait-DockerHealth -DockerExecutable $dockerCommand.Source -ContainerName 'platform-postgres'
-  Wait-DockerHealth -DockerExecutable $dockerCommand.Source -ContainerName 'platform-redis'
+  if ($needsLocalPostgres) {
+    Wait-PortReady -Port 5432
+    Wait-DockerHealth -DockerExecutable $dockerCommand.Source -ContainerName 'platform-postgres'
+  }
+
+  if ($needsLocalRedis) {
+    Wait-PortReady -Port 6379
+    Wait-DockerHealth -DockerExecutable $dockerCommand.Source -ContainerName 'platform-redis'
+  }
+} elseif (-not $postgresReady -or -not $redisReady) {
+  $missingServices = @()
+  if (-not $postgresReady) {
+    $missingServices += "PostgreSQL en $($databaseTarget.Host):$($databaseTarget.Port)"
+  }
+  if (-not $redisReady) {
+    $missingServices += "Redis en $($redisTarget.Host):$($redisTarget.Port)"
+  }
+
+  throw "No se pudo alcanzar: $($missingServices -join ', ')."
 }
 
 if ($SkipBootstrap) {
@@ -162,7 +248,14 @@ try {
     Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'seed:admin') -ErrorMessage 'El bootstrap del usuario administrador fallo.'
   } catch {
     if ($usedDockerCompose -and $dockerCommand) {
-      Print-DockerServiceLogs -DockerExecutable $dockerCommand.Source -ServiceNames @('postgres', 'redis')
+      $serviceNames = @()
+      if ($needsLocalPostgres) {
+        $serviceNames += 'postgres'
+      }
+      if ($needsLocalRedis) {
+        $serviceNames += 'redis'
+      }
+      Print-DockerServiceLogs -DockerExecutable $dockerCommand.Source -ServiceNames $serviceNames
     }
 
     throw

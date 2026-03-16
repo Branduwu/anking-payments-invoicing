@@ -378,6 +378,8 @@ Que hace cada uno:
 - `lint`: validacion estatica con ESLint
 - `audit:deps`: revisa vulnerabilidades de dependencias
 - `infra:up`: levanta `PostgreSQL` y `Redis`, corre migraciones y seed
+- `infra:up` solo levanta por Docker los servicios que sigan apuntando a `localhost`; si `DATABASE_URL`/`DIRECT_DATABASE_URL` o `REDIS_URL` son remotos, valida conectividad sin crear contenedores innecesarios
+- `start`: arranca la API usando la misma logica; si Neon o Redis son remotos, valida esas URLs antes de intentar Docker o modo degradado
 - `seed:admin`: bootstrap del usuario administrador; asume Prisma Client ya generado por `verify`, `infra:up`, `validate:local` o `npm run prisma:generate`
 - `smoke:test`: valida endpoints principales contra una API ya levantada
 - `smoke:test` ahora tambien recorre el CRUD de `customers` y comprueba el salto `database -> cache` en Redis antes de pagos y facturas
@@ -400,6 +402,7 @@ Nota operativa:
 - si `npm.cmd run verify` falla con `EPERM` sobre `query_engine-windows.dll.node`, normalmente tienes una API o watcher de Node bloqueando Prisma en Windows; detenlo y repite la verificacion
 - si usas `COOKIE_NAME=__Host-session`, activa tambien `COOKIE_SECURE=true` y sirve la app por HTTPS; para local sobre HTTP el valor recomendado es `session`
 - `infra:up`, `start-local` y `validate:local` sincronizan `apps/api/.env` desde el `.env` raiz para evitar drift de configuracion
+- `start-local` ya revisa `DIRECT_DATABASE_URL` y `REDIS_URL`; si apuntan a Neon o Redis administrado, no asume `localhost`
 - `validate:local` exige `health/live.status=ok` y `health/ready.status=ready`, y si la API no levanta o el smoke falla imprime logs recientes para diagnostico rapido
 - si `validate:local` arranca la API y luego falla, limpia el proceso para no dejar el puerto `4000` ocupado
 

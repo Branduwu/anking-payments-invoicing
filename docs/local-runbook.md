@@ -31,7 +31,7 @@ Hace esto:
 
 1. asegura `.env` y `apps/api/.env`
    el archivo `apps/api/.env` se sincroniza desde el `.env` raiz para evitar drift
-2. levanta `postgres` y `redis` con Docker si hace falta
+2. levanta `postgres` y `redis` con Docker solo si sus URLs siguen apuntando a `localhost`
 3. espera a que `5432` y `6379` esten disponibles y, si uso Docker, valida health de contenedores
 4. ejecuta `prisma:migrate:deploy`
 5. ejecuta `seed:admin`
@@ -39,6 +39,8 @@ Hace esto:
 Si migraciones o seed fallan despues de levantar Docker, el script imprime logs recientes de `postgres` y `redis`.
 
 `seed:admin` asume que Prisma Client ya fue generado por `verify`, `infra:up` o `npm run prisma:generate`.
+
+Si `DATABASE_URL`/`DIRECT_DATABASE_URL` apuntan a Neon o `REDIS_URL` apunta a un Redis remoto, `infra:up` no intentara crear esos servicios por Docker; solo comprobara conectividad.
 
 Usalo cuando quieras preparar infraestructura sin arrancar la API.
 
@@ -50,6 +52,8 @@ Hace esto:
 2. si faltan dependencias y Docker existe, llama `infra:up`
 3. si faltan dependencias y Docker no existe, levanta en modo degradado
 4. arranca la API en modo desarrollo
+
+`start` no se guia solo por `localhost:5432/6379`: revisa `DIRECT_DATABASE_URL` y `REDIS_URL`, asi que funciona igual con Neon y Redis remoto.
 
 ### `npm run smoke:test`
 

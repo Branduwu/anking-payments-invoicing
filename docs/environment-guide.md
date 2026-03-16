@@ -140,6 +140,9 @@ o
 REDIS_URL=rediss://<host>:6379
 ```
 
+Si `REDIS_URL` apunta a un host remoto, `infra:up` ya no intentara levantar Redis local por Docker; solo verificara que el host remoto responda.
+`start` tambien respeta esa misma logica: si `DIRECT_DATABASE_URL` o `REDIS_URL` apuntan a hosts remotos, valida esas dependencias sin asumir `localhost`.
+
 ### Flujo recomendado
 
 ```powershell
