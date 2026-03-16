@@ -25,6 +25,7 @@ El workflow `ci.yml` corre en dos etapas:
 2. `smoke`
    - levanta `PostgreSQL` y `Redis` como services de GitHub Actions
    - ejecuta `prisma generate`
+   - ejecuta `build`
    - aplica `prisma migrate deploy`
    - ejecuta `seed:admin`
    - arranca la API
@@ -36,6 +37,7 @@ El workflow `ci.yml` corre en dos etapas:
 - `smoke` valida el comportamiento contra dependencias reales
 - si `quality` falla, no se consumen recursos del job de smoke
 - `smoke` genera Prisma de forma explicita para que el seed y la API no dependan del orden externo del pipeline
+- `quality` y `smoke` corren en runners distintos, asi que `dist/` no sobrevive entre jobs y debe reconstruirse en `smoke`
 
 ### Semantica de `seed:admin`
 
