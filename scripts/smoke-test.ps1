@@ -39,7 +39,8 @@ function Invoke-Api {
     [string]$Method,
     [string]$Url,
     [object]$Body,
-    [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+    [object]$Session,
+    [string]$SessionVariable,
     [int[]]$ExpectedStatusCodes = @(200)
   )
 
@@ -60,6 +61,10 @@ function Invoke-Api {
 
   if ($null -ne $Session) {
     $invokeParams['WebSession'] = $Session
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($SessionVariable)) {
+    $invokeParams['SessionVariable'] = $SessionVariable
   }
 
   if ($null -ne $Body) {
@@ -161,12 +166,12 @@ $ready = Invoke-Api -Method 'GET' -Url "$BaseUrl/api/health/ready" -Body $null -
 Assert-HasValue -Value $ready.status -Message 'El endpoint /api/health/ready no devolvio estado ready.'
 Write-Host "ready: $($ready.status)"
 
-$webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$webSession = $null
 
 $login = Invoke-Api -Method 'POST' -Url "$BaseUrl/api/auth/login" -Body @{
   email = $AdminEmail
   password = $AdminPassword
-} -Session $webSession
+} -SessionVariable 'webSession'
 Write-Host "login: mfaRequired=$($login.mfaRequired)"
 
 if ($login.mfaRequired) {

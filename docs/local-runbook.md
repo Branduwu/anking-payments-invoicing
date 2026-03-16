@@ -212,11 +212,9 @@ Invoke-RestMethod http://localhost:4000/api/health/ready
 ### Login y sesion
 
 ```powershell
-$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-
 Invoke-RestMethod -Method Post `
   -Uri http://localhost:4000/api/auth/login `
-  -WebSession $session `
+  -SessionVariable session `
   -ContentType 'application/json' `
   -Body '{"email":"admin@example.com","password":"ChangeMeNow_123456789!"}'
 
