@@ -34,6 +34,11 @@ try {
     throw 'DATABASE_URL no esta configurada. No es seguro ejecutar migraciones sin un destino explicito.'
   }
 
+  if (-not $env:DIRECT_DATABASE_URL) {
+    $env:DIRECT_DATABASE_URL = $env:DATABASE_URL
+    Write-Host 'DIRECT_DATABASE_URL no estaba configurada. Se usara DATABASE_URL como fallback para esta ejecucion controlada.'
+  }
+
   $npmCommand = Get-NpmCommand
 
   if (-not $SkipPrismaGenerate) {

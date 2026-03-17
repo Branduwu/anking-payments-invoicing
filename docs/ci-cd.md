@@ -42,6 +42,7 @@ El workflow `ci.yml` corre en dos etapas:
 - `smoke` genera Prisma de forma explicita para que el seed y la API no dependan del orden externo del pipeline
 - `quality` y `smoke` corren en runners distintos, asi que `dist/` no sobrevive entre jobs y debe reconstruirse en `smoke`
 - `smoke` usa `COOKIE_NAME=session` porque el job corre sobre HTTP y un nombre `__Host-*` seria invalido sin `COOKIE_SECURE=true`
+- `smoke` define `DATABASE_URL` y `DIRECT_DATABASE_URL`; aunque en CI local ambas apuntan al mismo `PostgreSQL` efimero, Prisma requiere ambas variables porque el schema usa `directUrl`
 
 ### Semantica de `seed:admin`
 
@@ -73,6 +74,7 @@ La fase de migraciones:
 - usa `GitHub Environments`
 - tiene `concurrency` dedicado para evitar migraciones simultaneas
 - exige `DEPLOY_DATABASE_URL`
+- usa `DEPLOY_DIRECT_DATABASE_URL` cuando existe; si no esta definido, el script cae en fallback controlado a `DEPLOY_DATABASE_URL`
 - ejecuta `scripts/deploy-migrations.ps1`
 
 Ese script hace:
@@ -104,6 +106,7 @@ Para `ci.yml`, el workflow usa valores efimeros definidos inline.
 Para `deploy.yml`, define secretos por `environment`:
 
 - `DEPLOY_DATABASE_URL`
+- `DEPLOY_DIRECT_DATABASE_URL` recomendado para Neon o cualquier proveedor con URL directa/no pooled
 - `DEPLOY_BASE_URL`
 - `SMOKE_ADMIN_EMAIL`
 - `SMOKE_ADMIN_PASSWORD`

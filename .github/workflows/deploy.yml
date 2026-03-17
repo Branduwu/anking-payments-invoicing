@@ -64,6 +64,7 @@ jobs:
       cancel-in-progress: false
     env:
       DATABASE_URL: ${{ secrets.DEPLOY_DATABASE_URL }}
+      DIRECT_DATABASE_URL: ${{ secrets.DEPLOY_DIRECT_DATABASE_URL != '' && secrets.DEPLOY_DIRECT_DATABASE_URL || secrets.DEPLOY_DATABASE_URL }}
 
     steps:
       - name: Checkout
