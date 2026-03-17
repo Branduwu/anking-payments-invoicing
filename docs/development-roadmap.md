@@ -72,7 +72,7 @@ Estado observado:
 
 ## Fase 4. MFA y reautenticacion
 
-Estado actual: completada como base funcional
+Estado actual: completada y endurecida
 
 Entregables:
 
@@ -88,10 +88,11 @@ Criterio de salida:
 Estado observado:
 
 - TOTP activo
+- WebAuthn/passkeys activos en backend
 - recovery codes activos
 - reset y disable de MFA activos
 - reautenticacion activa
-- pendiente WebAuthn/passkeys
+- pendiente integracion frontend/browser y prueba E2E real de la ceremonia WebAuthn
 
 ## Fase 5. Pagos
 
@@ -162,4 +163,4 @@ Estado observado:
 - smoke tests
 - CI/CD
 - runbooks operativos
-- pendiente observabilidad real, alertas reales y endurecimiento adicional segun despliegue final
+- pendiente observabilidad real, alertas reales, browser E2E de WebAuthn y endurecimiento adicional segun despliegue final

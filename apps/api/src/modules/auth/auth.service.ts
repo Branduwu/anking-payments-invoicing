@@ -8,8 +8,14 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON,
+} from '@simplewebauthn/server';
 import { ConfigService } from '@nestjs/config';
-import { UserRole, UserStatus } from '@prisma/client';
+import { UserRole, UserStatus, type WebAuthnCredential } from '@prisma/client';
 import { verify } from 'argon2';
 import type { RequestMetadata } from '../../common/http/request-metadata';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -24,10 +30,18 @@ import type { MfaVerifyDto } from './dto/mfa-verify.dto';
 import type { ReauthenticateDto } from './dto/reauthenticate.dto';
 import { AuthRateLimitService } from './auth-rate-limit.service';
 import { MfaService } from './mfa.service';
+import {
+  WebAuthnService,
+  type StoredWebAuthnCredential,
+  type WebAuthnAuthenticationPurpose,
+} from './webauthn.service';
+
+export type AvailableMfaMethod = 'totp' | 'recovery_code' | 'webauthn';
 
 interface LoginResult {
   sessionId: string;
   mfaRequired: boolean;
+  availableMfaMethods: AvailableMfaMethod[];
 }
 
 interface VerifyMfaResult {
@@ -46,6 +60,36 @@ interface UserMfaStateSnapshot {
   mfaTotpSecretEnc: string | null;
   mfaRecoveryCodes: string[];
   mfaRecoveryCodesGeneratedAt: Date | null;
+  activeWebAuthnCredentialIds: string[];
+}
+
+interface WebAuthnCredentialView {
+  id: string;
+  createdAt: Date;
+  lastUsedAt?: Date;
+  deviceType: string;
+  backedUp: boolean;
+  transports: string[];
+}
+
+interface WebAuthnRegistrationResult {
+  credentialId: string;
+  recoveryCodes?: string[];
+  remainingRecoveryCodes: number;
+  totalCredentials: number;
+}
+
+interface WebAuthnAuthenticationResult {
+  session: ActiveSession;
+  purpose: WebAuthnAuthenticationPurpose;
+}
+
+interface UserMfaState {
+  mfaEnabled: boolean;
+  mfaTotpSecretEnc: string | null;
+  mfaRecoveryCodes: string[];
+  mfaRecoveryCodesGeneratedAt: Date | null;
+  webauthnCredentials: Pick<WebAuthnCredential, 'id'>[];
 }
 
 @Injectable()
@@ -59,6 +103,7 @@ export class AuthService {
     private readonly sessionsService: SessionsService,
     private readonly authRateLimitService: AuthRateLimitService,
     private readonly mfaService: MfaService,
+    private readonly webAuthnService: WebAuthnService,
   ) {}
 
   async login(payload: LoginDto, metadata: RequestMetadata): Promise<LoginResult> {
@@ -68,6 +113,10 @@ export class AuthService {
       where: { email },
       include: {
         credentials: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: { id: true },
+        },
       },
     });
 
@@ -112,14 +161,16 @@ export class AuthService {
     await this.resetFailedLogin(user.id);
     await this.authRateLimitService.clearLoginFailures(email, metadata.ipAddress);
 
-    const session = await this.sessionsService.createSession(
-      user.id,
-      metadata,
-      'none',
-      user.mfaEnabled,
-    );
+    const availableMfaMethods = this.resolveAvailableMfaMethods({
+      mfaTotpSecretEnc: user.mfaTotpSecretEnc,
+      mfaRecoveryCodes: user.mfaRecoveryCodes,
+      activeWebAuthnCredentialCount: user.webauthnCredentials.length,
+    });
+    const mfaRequired = availableMfaMethods.length > 0;
 
-    if (!user.mfaEnabled) {
+    const session = await this.sessionsService.createSession(user.id, metadata, 'none', mfaRequired);
+
+    if (!mfaRequired) {
       await this.sessionsService.markReauthenticated(session.id);
     }
 
@@ -132,13 +183,15 @@ export class AuthService {
       entityType: 'session',
       entityId: session.id,
       metadata: {
-        mfaRequired: user.mfaEnabled,
+        mfaRequired,
+        availableMfaMethods,
       },
     });
 
     return {
       sessionId: session.id,
-      mfaRequired: user.mfaEnabled,
+      mfaRequired,
+      availableMfaMethods,
     };
   }
 
@@ -181,6 +234,8 @@ export class AuthService {
       mfaEnabled: boolean;
       roles: string[];
       recoveryCodesRemaining: number;
+      webauthnCredentialsCount: number;
+      mfaMethods: AvailableMfaMethod[];
     };
     session: ActiveSession;
   }> {
@@ -192,7 +247,17 @@ export class AuthService {
             role: true,
           },
         },
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: { id: true },
+        },
       },
+    });
+
+    const mfaMethods = this.resolveAvailableMfaMethods({
+      mfaTotpSecretEnc: user.mfaTotpSecretEnc,
+      mfaRecoveryCodes: user.mfaRecoveryCodes,
+      activeWebAuthnCredentialCount: user.webauthnCredentials.length,
     });
 
     return {
@@ -201,9 +266,11 @@ export class AuthService {
         email: user.email,
         displayName: user.displayName,
         status: user.status,
-        mfaEnabled: user.mfaEnabled,
+        mfaEnabled: mfaMethods.length > 0,
         roles: user.roles.map((role) => role.role),
         recoveryCodesRemaining: user.mfaRecoveryCodes.length,
+        webauthnCredentialsCount: user.webauthnCredentials.length,
+        mfaMethods,
       },
       session,
     };
@@ -215,7 +282,7 @@ export class AuthService {
       select: {
         id: true,
         email: true,
-        mfaEnabled: true,
+        mfaTotpSecretEnc: true,
       },
     });
 
@@ -223,8 +290,8 @@ export class AuthService {
       throw new UnauthorizedException('Current user not found');
     }
 
-    if (user.mfaEnabled) {
-      throw new ConflictException('MFA is already enabled for this account');
+    if (user.mfaTotpSecretEnc) {
+      throw new ConflictException('TOTP MFA is already enabled for this account');
     }
 
     const setup = await this.mfaService.createSetup(session.id, user.email);
@@ -252,6 +319,10 @@ export class AuthService {
       where: { id: session.userId },
       include: {
         credentials: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: { id: true },
+        },
       },
     });
 
@@ -290,9 +361,15 @@ export class AuthService {
       throw this.invalidCredentialsError();
     }
 
-    if (user.mfaEnabled) {
+    if (
+      this.resolveAvailableMfaMethods({
+        mfaTotpSecretEnc: user.mfaTotpSecretEnc,
+        mfaRecoveryCodes: user.mfaRecoveryCodes,
+        activeWebAuthnCredentialCount: user.webauthnCredentials.length,
+      }).length > 0
+    ) {
       throw new BadRequestException(
-        'Use /auth/mfa/verify para reautenticacion cuando MFA este habilitado.',
+        'Use a registered MFA method for reauthentication when MFA is enabled.',
       );
     }
 
@@ -503,10 +580,18 @@ export class AuthService {
         id: true,
         mfaEnabled: true,
         mfaTotpSecretEnc: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: { id: true },
+        },
       },
     });
 
-    if (!user || !user.mfaEnabled || !user.mfaTotpSecretEnc) {
+    if (!user) {
+      throw new ConflictException('MFA must be enabled before regenerating recovery codes');
+    }
+
+    if (!this.hasPrimaryMfaFactor(user.mfaTotpSecretEnc, user.webauthnCredentials.length)) {
       throw new ConflictException('MFA must be enabled before regenerating recovery codes');
     }
 
@@ -556,6 +641,10 @@ export class AuthService {
         mfaTotpSecretEnc: true,
         mfaRecoveryCodes: true,
         mfaRecoveryCodesGeneratedAt: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: { id: true },
+        },
       },
     });
 
@@ -570,6 +659,15 @@ export class AuthService {
         where: { id: user.id },
         data: this.getMfaDisabledData(),
       });
+      await tx.webAuthnCredential.updateMany({
+        where: {
+          userId: user.id,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
 
       await tx.auditEvent.create({
         data: this.auditService.buildCreateData({
@@ -582,6 +680,7 @@ export class AuthService {
           entityId: session.id,
           metadata: {
             reason: payload.reason,
+            revokedWebAuthnCredentials: user.webauthnCredentials.length,
           },
         }),
       });
@@ -645,6 +744,10 @@ export class AuthService {
         mfaTotpSecretEnc: true,
         mfaRecoveryCodes: true,
         mfaRecoveryCodesGeneratedAt: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: { id: true },
+        },
       },
     });
 
@@ -659,6 +762,15 @@ export class AuthService {
         where: { id: payload.userId },
         data: this.getMfaDisabledData(),
       });
+      await tx.webAuthnCredential.updateMany({
+        where: {
+          userId: payload.userId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
 
       await tx.auditEvent.create({
         data: this.auditService.buildCreateData({
@@ -671,6 +783,7 @@ export class AuthService {
           entityId: payload.userId,
           metadata: {
             reason: payload.reason,
+            revokedWebAuthnCredentials: targetUser.webauthnCredentials.length,
           },
         }),
       });
@@ -703,6 +816,397 @@ export class AuthService {
     }
   }
 
+  async beginWebAuthnRegistration(
+    session: ActiveSession,
+  ): Promise<PublicKeyCredentialCreationOptionsJSON> {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: {
+            id: true,
+            credentialId: true,
+            publicKey: true,
+            counter: true,
+            transports: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Current user not found');
+    }
+
+    return this.webAuthnService.beginRegistration(
+      session.id,
+      {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+      },
+      user.webauthnCredentials.map((credential) => this.toStoredWebAuthnCredential(credential)),
+    );
+  }
+
+  async finishWebAuthnRegistration(
+    session: ActiveSession,
+    response: RegistrationResponseJSON,
+    metadata: RequestMetadata,
+  ): Promise<WebAuthnRegistrationResult> {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        mfaEnabled: true,
+        mfaTotpSecretEnc: true,
+        mfaRecoveryCodes: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: {
+            id: true,
+            credentialId: true,
+            publicKey: true,
+            counter: true,
+            transports: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Current user not found');
+    }
+
+    let verification: Awaited<ReturnType<WebAuthnService['finishRegistration']>>;
+    try {
+      verification = await this.webAuthnService.finishRegistration(session.id, response);
+    } catch (error) {
+      await this.auditFailure('auth.webauthn.registration.failure', metadata, user.id, {
+        reason: error instanceof Error ? error.message : 'challenge-or-verification-error',
+      });
+      throw error;
+    }
+
+    if (!verification.verified || !verification.registrationInfo) {
+      await this.auditFailure('auth.webauthn.registration.failure', metadata, user.id, {
+        reason: 'verification-failed',
+      });
+      throw this.invalidCredentialsError();
+    }
+
+    const credentialId = verification.registrationInfo.credential.id;
+    if (user.webauthnCredentials.some((credential) => credential.credentialId === credentialId)) {
+      throw new ConflictException('This WebAuthn credential is already registered');
+    }
+
+    const shouldGenerateRecoveryCodes = user.mfaRecoveryCodes.length === 0;
+    const recoveryCodes = shouldGenerateRecoveryCodes ? this.mfaService.generateRecoveryCodes() : null;
+
+    await this.prismaService.$transaction(async (tx) => {
+      await tx.webAuthnCredential.create({
+        data: {
+          userId: user.id,
+          credentialId,
+          publicKey: Buffer.from(verification.registrationInfo.credential.publicKey),
+          counter: verification.registrationInfo.credential.counter,
+          transports: response.response.transports ?? [],
+          deviceType: verification.registrationInfo.credentialDeviceType,
+          backedUp: verification.registrationInfo.credentialBackedUp,
+        },
+      });
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          mfaEnabled: true,
+          ...(recoveryCodes
+            ? {
+                mfaRecoveryCodes: recoveryCodes.hashes,
+                mfaRecoveryCodesGeneratedAt: new Date(),
+              }
+            : {}),
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: this.auditService.buildCreateData({
+          action: 'auth.webauthn.registration.success',
+          result: 'SUCCESS',
+          userId: user.id,
+          requestId: metadata.requestId,
+          ipAddress: metadata.ipAddress,
+          entityType: 'webauthn_credential',
+          entityId: credentialId,
+          metadata: {
+            deviceType: verification.registrationInfo.credentialDeviceType,
+            backedUp: verification.registrationInfo.credentialBackedUp,
+            generatedRecoveryCodes: recoveryCodes?.codes.length ?? 0,
+          },
+        }),
+      });
+    });
+
+    return {
+      credentialId,
+      recoveryCodes: recoveryCodes?.codes,
+      remainingRecoveryCodes: recoveryCodes?.codes.length ?? user.mfaRecoveryCodes.length,
+      totalCredentials: user.webauthnCredentials.length + 1,
+    };
+  }
+
+  async beginWebAuthnAuthentication(
+    session: ActiveSession,
+    purpose?: WebAuthnAuthenticationPurpose,
+  ): Promise<PublicKeyCredentialRequestOptionsJSON> {
+    const resolvedPurpose = this.resolveWebAuthnAuthenticationPurpose(session, purpose);
+    const user = await this.prismaService.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: {
+            id: true,
+            credentialId: true,
+            publicKey: true,
+            counter: true,
+            transports: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Current user not found');
+    }
+
+    return this.webAuthnService.beginAuthentication(
+      session.id,
+      resolvedPurpose,
+      user.webauthnCredentials.map((credential) => this.toStoredWebAuthnCredential(credential)),
+    );
+  }
+
+  async finishWebAuthnAuthentication(
+    session: ActiveSession,
+    response: AuthenticationResponseJSON,
+    metadata: RequestMetadata,
+    purpose?: WebAuthnAuthenticationPurpose,
+  ): Promise<WebAuthnAuthenticationResult> {
+    const resolvedPurpose = this.resolveWebAuthnAuthenticationPurpose(session, purpose);
+    const user = await this.prismaService.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: {
+            id: true,
+            credentialId: true,
+            publicKey: true,
+            counter: true,
+            transports: true,
+            deviceType: true,
+            backedUp: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Current user not found');
+    }
+
+    const credential = user.webauthnCredentials.find(
+      (candidate) => candidate.credentialId === response.id,
+    );
+
+    if (!credential) {
+      await this.auditFailure('auth.webauthn.authentication.failure', metadata, user.id, {
+        reason: 'credential-not-found',
+        purpose: resolvedPurpose,
+      });
+      throw this.invalidCredentialsError();
+    }
+
+    let verification: Awaited<ReturnType<WebAuthnService['finishAuthentication']>>;
+    try {
+      verification = await this.webAuthnService.finishAuthentication(
+        session.id,
+        resolvedPurpose,
+        response,
+        this.toStoredWebAuthnCredential(credential),
+      );
+    } catch (error) {
+      await this.auditFailure('auth.webauthn.authentication.failure', metadata, user.id, {
+        reason: error instanceof Error ? error.message : 'challenge-or-verification-error',
+        purpose: resolvedPurpose,
+        credentialId: credential.credentialId,
+      });
+      throw error;
+    }
+
+    if (!verification.verified) {
+      await this.auditFailure('auth.webauthn.authentication.failure', metadata, user.id, {
+        reason: 'verification-failed',
+        purpose: resolvedPurpose,
+        credentialId: credential.credentialId,
+      });
+      throw this.invalidCredentialsError();
+    }
+
+    await this.prismaService.$transaction(async (tx) => {
+      await tx.webAuthnCredential.update({
+        where: { id: credential.id },
+        data: {
+          counter: verification.authenticationInfo.newCounter,
+          lastUsedAt: new Date(),
+          deviceType: verification.authenticationInfo.credentialDeviceType,
+          backedUp: verification.authenticationInfo.credentialBackedUp,
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: this.auditService.buildCreateData({
+          action: 'auth.webauthn.authentication.success',
+          result: 'SUCCESS',
+          userId: user.id,
+          requestId: metadata.requestId,
+          ipAddress: metadata.ipAddress,
+          entityType: 'webauthn_credential',
+          entityId: credential.credentialId,
+          metadata: {
+            purpose: resolvedPurpose,
+            deviceType: verification.authenticationInfo.credentialDeviceType,
+            backedUp: verification.authenticationInfo.credentialBackedUp,
+          },
+        }),
+      });
+    });
+
+    const sessionWithMfa = await this.sessionsService.completeMfaChallenge(session.id, 'webauthn');
+    if (!sessionWithMfa) {
+      throw new UnauthorizedException('Current session is not valid');
+    }
+
+    const updatedSession = await this.sessionsService.markReauthenticated(session.id);
+    if (!updatedSession) {
+      throw new UnauthorizedException('Current session is not valid');
+    }
+
+    return {
+      session: updatedSession,
+      purpose: resolvedPurpose,
+    };
+  }
+
+  async listWebAuthnCredentials(session: ActiveSession): Promise<WebAuthnCredentialView[]> {
+    const credentials = await this.prismaService.webAuthnCredential.findMany({
+      where: {
+        userId: session.userId,
+        revokedAt: null,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        lastUsedAt: true,
+        deviceType: true,
+        backedUp: true,
+        transports: true,
+      },
+    });
+
+    return credentials.map((credential) => ({
+      ...credential,
+      lastUsedAt: credential.lastUsedAt ?? undefined,
+    }));
+  }
+
+  async revokeWebAuthnCredential(
+    session: ActiveSession,
+    credentialId: string,
+    metadata: RequestMetadata,
+  ): Promise<{ remainingCredentials: number; mfaEnabled: boolean }> {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        mfaTotpSecretEnc: true,
+        mfaRecoveryCodes: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Current user not found');
+    }
+
+    const targetCredential = user.webauthnCredentials.find((credential) => credential.id === credentialId);
+    if (!targetCredential) {
+      throw new NotFoundException('WebAuthn credential not found');
+    }
+
+    const remainingCredentials = user.webauthnCredentials.length - 1;
+    const hasRemainingPrimaryFactor = this.hasPrimaryMfaFactor(
+      user.mfaTotpSecretEnc,
+      remainingCredentials,
+    );
+
+    await this.prismaService.$transaction(async (tx) => {
+      await tx.webAuthnCredential.update({
+        where: { id: credentialId },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+
+      if (!hasRemainingPrimaryFactor) {
+        await tx.user.update({
+          where: { id: user.id },
+          data: this.getMfaDisabledData(),
+        });
+      }
+
+      await tx.auditEvent.create({
+        data: this.auditService.buildCreateData({
+          action: 'auth.webauthn.credential.revoked',
+          result: 'SUCCESS',
+          userId: user.id,
+          requestId: metadata.requestId,
+          ipAddress: metadata.ipAddress,
+          entityType: 'webauthn_credential',
+          entityId: credentialId,
+          metadata: {
+            remainingCredentials,
+            mfaEnabled: hasRemainingPrimaryFactor,
+          },
+        }),
+      });
+    });
+
+    if (!hasRemainingPrimaryFactor) {
+      await this.sessionsService.updateMfaLevel(session.id, 'none');
+    }
+
+    return {
+      remainingCredentials,
+      mfaEnabled: hasRemainingPrimaryFactor,
+    };
+  }
+
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
   }
@@ -716,12 +1220,13 @@ export class AuthService {
     };
   }
 
-  private getMfaStateSnapshot(state: UserMfaStateSnapshot): UserMfaStateSnapshot {
+  private getMfaStateSnapshot(state: UserMfaState): UserMfaStateSnapshot {
     return {
       mfaEnabled: state.mfaEnabled,
       mfaTotpSecretEnc: state.mfaTotpSecretEnc,
       mfaRecoveryCodes: [...state.mfaRecoveryCodes],
       mfaRecoveryCodesGeneratedAt: state.mfaRecoveryCodesGeneratedAt,
+      activeWebAuthnCredentialIds: state.webauthnCredentials.map((credential) => credential.id),
     };
   }
 
@@ -748,6 +1253,18 @@ export class AuthService {
           where: { id: targetUserId },
           data: this.getMfaStateData(snapshot),
         });
+        if (snapshot.activeWebAuthnCredentialIds.length > 0) {
+          await tx.webAuthnCredential.updateMany({
+            where: {
+              id: {
+                in: snapshot.activeWebAuthnCredentialIds,
+              },
+            },
+            data: {
+              revokedAt: null,
+            },
+          });
+        }
 
         await tx.auditEvent.create({
           data: this.auditService.buildCreateData({
@@ -776,6 +1293,68 @@ export class AuthService {
     });
 
     return assignments.map((assignment) => assignment.role);
+  }
+
+  private resolveAvailableMfaMethods(state: {
+    mfaTotpSecretEnc: string | null;
+    mfaRecoveryCodes: string[];
+    activeWebAuthnCredentialCount: number;
+  }): AvailableMfaMethod[] {
+    const methods: AvailableMfaMethod[] = [];
+    const hasPrimaryFactor = this.hasPrimaryMfaFactor(
+      state.mfaTotpSecretEnc,
+      state.activeWebAuthnCredentialCount,
+    );
+
+    if (state.mfaTotpSecretEnc) {
+      methods.push('totp');
+    }
+
+    if (state.activeWebAuthnCredentialCount > 0) {
+      methods.push('webauthn');
+    }
+
+    if (hasPrimaryFactor && state.mfaRecoveryCodes.length > 0) {
+      methods.push('recovery_code');
+    }
+
+    return methods;
+  }
+
+  private hasPrimaryMfaFactor(
+    mfaTotpSecretEnc: string | null,
+    activeWebAuthnCredentialCount: number,
+  ): boolean {
+    return Boolean(mfaTotpSecretEnc) || activeWebAuthnCredentialCount > 0;
+  }
+
+  private resolveWebAuthnAuthenticationPurpose(
+    session: ActiveSession,
+    purpose?: WebAuthnAuthenticationPurpose,
+  ): WebAuthnAuthenticationPurpose {
+    const resolvedPurpose = purpose ?? (session.requiresMfa ? 'login' : 'reauth');
+
+    if (resolvedPurpose === 'login' && !session.requiresMfa) {
+      throw new BadRequestException('Current session does not require MFA login completion');
+    }
+
+    if (resolvedPurpose === 'reauth' && session.requiresMfa) {
+      throw new BadRequestException('Pending MFA sessions must complete login verification first');
+    }
+
+    return resolvedPurpose;
+  }
+
+  private toStoredWebAuthnCredential(
+    credential: Pick<WebAuthnCredential, 'credentialId' | 'publicKey' | 'counter' | 'transports'>,
+  ): StoredWebAuthnCredential {
+    return {
+      id: credential.credentialId,
+      credentialId: credential.credentialId,
+      publicKey: credential.publicKey,
+      counter: credential.counter,
+      transports: credential.transports as StoredWebAuthnCredential['transports'],
+    };
   }
 
   private async registerFailedLogin(userId: string, currentFailedCount: number): Promise<void> {

@@ -15,7 +15,7 @@ La plataforma ya cuenta con una base funcional y endurecida para:
 - autenticacion robusta con password hash `Argon2`
 - sesiones server-side en `Redis`
 - revocacion inmediata de sesiones
-- MFA con `TOTP`, recovery codes, disable y reset administrativo
+- MFA con `TOTP`, `WebAuthn/passkeys`, recovery codes, disable y reset administrativo
 - reautenticacion para operaciones criticas
 - rate limiting de autenticacion en `Redis`
 - pagos persistidos con auditoria durable
@@ -39,8 +39,8 @@ Capacidades actuales:
 
 Pendiente:
 
-- WebAuthn/passkeys
 - politicas mas avanzadas de password lifecycle si se requieren
+- endurecer experiencia de frontend/browser para passkeys y sus pruebas E2E
 
 ### 2. Sesiones stateful
 
@@ -63,12 +63,15 @@ Pendiente:
 
 ### 3. MFA y reautenticacion
 
-Estado: implementado parcialmente avanzado
+Estado: implementado y endurecido
 
 Capacidades actuales:
 
 - enrolamiento TOTP
 - verificacion TOTP
+- registro de credenciales WebAuthn/passkeys
+- verificacion WebAuthn para login y reautenticacion
+- listado y revocacion de credenciales WebAuthn
 - recovery codes
 - regeneracion de recovery codes
 - disable voluntario
@@ -79,7 +82,7 @@ Capacidades actuales:
 
 Pendiente:
 
-- WebAuthn/passkeys
+- integracion frontend/browser de la ceremonia WebAuthn
 - flujos avanzados de recuperacion con politicas operativas mas maduras
 
 ### 4. Pagos
@@ -190,17 +193,19 @@ Evidencia:
 
 ### Fase 4. MFA y reautenticacion
 
-Estado: completada en base funcional
+Estado: completada y endurecida
 
 Evidencia:
 
 - `setup`, `verify`, recovery codes
+- endpoints de registro y autenticacion WebAuthn
+- persistencia de credenciales WebAuthn en Prisma
 - reautenticacion
 - guards para operaciones sensibles
 
 Nota:
 
-- falta WebAuthn, pero la base esperada para TOTP y recovery codes ya existe
+- la base backend de WebAuthn ya existe; lo que sigue pendiente es el cierre de UX/browser y E2E real desde frontend
 
 ### Fase 5. Pagos
 
@@ -275,7 +280,7 @@ Despues de cambios importantes, el flujo recomendado y ya documentado es:
 ## Riesgos abiertos mas importantes
 
 1. Elegir e integrar PAC real.
-2. Agregar WebAuthn/passkeys.
+2. Cerrar frontend/browser y E2E real de WebAuthn/passkeys.
 3. Completar observabilidad con backend real de metricas, logs y alertas.
 4. Definir despliegue productivo final y automatizarlo.
 5. Seguir ampliando politicas `fail-closed` donde el riesgo operativo lo amerite.

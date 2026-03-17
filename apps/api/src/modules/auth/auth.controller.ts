@@ -1,4 +1,18 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import type {
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+} from '@simplewebauthn/server';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionCookieOptions } from '../../common/config/cookie-options';
@@ -9,13 +23,16 @@ import { RecentReauthGuard } from '../../common/guards/recent-reauth.guard';
 import { SessionAuthGuard } from '../../common/guards/session-auth.guard';
 import { getRequestMetadata } from '../../common/http/request-metadata';
 import type { ActiveSession } from '../sessions/session.types';
-import { AuthService } from './auth.service';
+import { AuthService, type AvailableMfaMethod } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { MfaAdminResetDto } from './dto/mfa-admin-reset.dto';
 import { MfaDisableDto } from './dto/mfa-disable.dto';
 import type { MfaSetupResponseDto } from './dto/mfa-setup-response.dto';
 import { MfaVerifyDto } from './dto/mfa-verify.dto';
 import { ReauthenticateDto } from './dto/reauthenticate.dto';
+import { WebAuthnAuthenticationOptionsDto } from './dto/webauthn-authentication-options.dto';
+import { WebAuthnAuthenticationVerifyDto } from './dto/webauthn-authentication-verify.dto';
+import { WebAuthnRegistrationVerifyDto } from './dto/webauthn-registration-verify.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -29,7 +46,7 @@ export class AuthController {
     @Body() payload: LoginDto,
     @Req() request: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
-  ): Promise<{ mfaRequired: boolean; message: string }> {
+  ): Promise<{ mfaRequired: boolean; availableMfaMethods: AvailableMfaMethod[]; message: string }> {
     const result = await this.authService.login(payload, getRequestMetadata(request));
     const cookieName =
       this.configService.get<string>('app.cookie.name', { infer: true }) ?? '__Host-session';
@@ -38,6 +55,7 @@ export class AuthController {
 
     return {
       mfaRequired: result.mfaRequired,
+      availableMfaMethods: result.availableMfaMethods,
       message: 'Login successful',
     };
   }
@@ -92,6 +110,8 @@ export class AuthController {
       mfaEnabled: boolean;
       roles: string[];
       recoveryCodesRemaining: number;
+      webauthnCredentialsCount: number;
+      mfaMethods: AvailableMfaMethod[];
     };
     session: ActiveSession;
   }> {
@@ -193,6 +213,107 @@ export class AuthController {
     await this.authService.adminResetMfa(session, payload, getRequestMetadata(request));
     return {
       message: 'MFA reset completed',
+    };
+  }
+
+  @Post('webauthn/registration/options')
+  @UseGuards(SessionAuthGuard, RecentReauthGuard)
+  @RequireRecentReauth()
+  async beginWebAuthnRegistration(
+    @CurrentSession() session: ActiveSession,
+  ): Promise<PublicKeyCredentialCreationOptionsJSON> {
+    return this.authService.beginWebAuthnRegistration(session);
+  }
+
+  @Post('webauthn/registration/verify')
+  @UseGuards(SessionAuthGuard, RecentReauthGuard)
+  @RequireRecentReauth()
+  async finishWebAuthnRegistration(
+    @CurrentSession() session: ActiveSession,
+    @Body() payload: WebAuthnRegistrationVerifyDto,
+    @Req() request: FastifyRequest,
+  ): Promise<{
+    credentialId: string;
+    recoveryCodes?: string[];
+    remainingRecoveryCodes: number;
+    totalCredentials: number;
+  }> {
+    return this.authService.finishWebAuthnRegistration(
+      session,
+      payload.response,
+      getRequestMetadata(request),
+    );
+  }
+
+  @Post('webauthn/authentication/options')
+  @UseGuards(SessionAuthGuard)
+  @AllowPendingMfa()
+  async beginWebAuthnAuthentication(
+    @CurrentSession() session: ActiveSession,
+    @Body() payload: WebAuthnAuthenticationOptionsDto,
+  ): Promise<PublicKeyCredentialRequestOptionsJSON> {
+    return this.authService.beginWebAuthnAuthentication(session, payload?.purpose);
+  }
+
+  @Post('webauthn/authentication/verify')
+  @UseGuards(SessionAuthGuard)
+  @AllowPendingMfa()
+  async finishWebAuthnAuthentication(
+    @CurrentSession() session: ActiveSession,
+    @Body() payload: WebAuthnAuthenticationVerifyDto,
+    @Req() request: FastifyRequest,
+  ): Promise<{ reauthenticatedUntil?: Date; mfaLevel: string; purpose: string }> {
+    const result = await this.authService.finishWebAuthnAuthentication(
+      session,
+      payload.response,
+      getRequestMetadata(request),
+      payload.purpose,
+    );
+
+    return {
+      reauthenticatedUntil: result.session.reauthenticatedUntil,
+      mfaLevel: result.session.mfaLevel,
+      purpose: result.purpose,
+    };
+  }
+
+  @Get('webauthn/credentials')
+  @UseGuards(SessionAuthGuard, RecentReauthGuard)
+  @RequireRecentReauth()
+  async listWebAuthnCredentials(
+    @CurrentSession() session: ActiveSession,
+  ): Promise<{
+    credentials: {
+      id: string;
+      createdAt: Date;
+      lastUsedAt?: Date;
+      deviceType: string;
+      backedUp: boolean;
+      transports: string[];
+    }[];
+  }> {
+    const credentials = await this.authService.listWebAuthnCredentials(session);
+    return { credentials };
+  }
+
+  @Delete('webauthn/credentials/:credentialId')
+  @UseGuards(SessionAuthGuard, RecentReauthGuard)
+  @RequireRecentReauth()
+  async revokeWebAuthnCredential(
+    @CurrentSession() session: ActiveSession,
+    @Param('credentialId') credentialId: string,
+    @Req() request: FastifyRequest,
+  ): Promise<{ message: string; remainingCredentials: number; mfaEnabled: boolean }> {
+    const result = await this.authService.revokeWebAuthnCredential(
+      session,
+      credentialId,
+      getRequestMetadata(request),
+    );
+
+    return {
+      message: 'WebAuthn credential revoked',
+      remainingCredentials: result.remainingCredentials,
+      mfaEnabled: result.mfaEnabled,
     };
   }
 }

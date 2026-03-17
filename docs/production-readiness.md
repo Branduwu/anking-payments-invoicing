@@ -13,7 +13,7 @@ La plataforma ya tiene:
 - API modular en `NestJS`
 - persistencia durable en `PostgreSQL`
 - sesiones stateful en `Redis`
-- MFA TOTP con recovery codes, disable, reset y lockout
+- MFA TOTP y WebAuthn/passkeys con recovery codes, disable, reset y lockout
 - pagos persistidos con auditoria
 - facturas con timbrado abstracto
 - auditoria fail-closed configurable por tipo de resultado
@@ -29,7 +29,7 @@ Lo mas importante para productivo real:
 
 - banco o pasarela real
 - PAC real vendor-specific
-- WebAuthn
+- cierre de frontend/browser y rollout real de WebAuthn/passkeys
 - backend real de observabilidad
 - destino final de despliegue automatizado
 - estrategia HA/DR formal
@@ -52,7 +52,7 @@ Lo mas importante para productivo real:
 - secretos fuera del repo
 - rotacion planeada de secretos
 - anti-automation y rate limiting
-- WebAuthn para cuentas criticas
+- hacer obligatorio WebAuthn para cuentas criticas donde aplique y validar su UX/browser de punta a punta
 
 ### 3. Integraciones reales
 

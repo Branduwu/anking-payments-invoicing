@@ -7,7 +7,7 @@ Base de una plataforma segura para autenticacion, sesiones stateful, cobros banc
 Este repositorio prepara una base seria para una plataforma financiera con foco en:
 
 - autenticacion robusta
-- MFA con TOTP y recovery codes
+- MFA con TOTP, WebAuthn/passkeys y recovery codes
 - sesiones revocables de inmediato
 - pagos persistidos con auditoria
 - facturacion con creacion, timbrado y cancelacion
@@ -22,7 +22,7 @@ Sirve para construir una plataforma que permita:
 - login seguro con `Argon2`
 - manejo de sesiones server-side en `Redis`
 - reautenticacion para operaciones criticas
-- MFA TOTP con lockout y recovery codes
+- MFA TOTP y WebAuthn/passkeys con lockout y recovery codes
 - rate limiting en `login` y `reauthenticate` por usuario/correo e IP en `Redis`
 - cobros bancarios persistidos en `PostgreSQL`
 - facturas con flujo `DRAFT -> STAMPED -> CANCELLED`
@@ -109,7 +109,8 @@ La base actual ya deja:
 - login real contra `PostgreSQL`
 - sesiones persistidas en `Redis` con revocacion inmediata
 - rotacion de sesion segura con rollback del reemplazo si la revocacion falla
-- MFA TOTP con setup, verify, recovery codes, disable y admin reset
+- MFA TOTP y WebAuthn/passkeys con setup, verify, recovery codes, disable y admin reset
+- registro, verificacion, listado y revocacion de credenciales WebAuthn
 - disable y admin reset de MFA con compensacion para restaurar el estado si Redis o la actualizacion de sesiones fallan
 - rate limiting de autenticacion en `Redis` para `login` y `reauthenticate`
 - throttling y lockout temporal para MFA
@@ -133,7 +134,7 @@ La foto detallada de que ya esta implementado, por fase y por modulo, vive en:
 Los huecos importantes que todavia quedan:
 
 - falta un PAC vendor-specific real para CFDI productivo
-- falta WebAuthn/passkeys
+- la integracion backend de WebAuthn ya existe, pero aun falta cerrar la experiencia de navegador/frontend y una prueba E2E real de la ceremonia browser-based
 - la auditoria fail-closed ya cubre mas casos sensibles, pero aun no abarca absolutamente todos los eventos
 - la observabilidad actual ya tiene health y logs estructurados, pero aun no esta conectada a un backend real de metricas o alertas
 - el despliegue productivo final sigue pendiente del destino real que elijas
@@ -188,7 +189,8 @@ Redis no reemplaza a PostgreSQL. Redis acelera y permite revocacion inmediata; P
 ### Auth y sesiones
 
 - `POST /api/auth/login` valida email y password contra `PostgreSQL`
-- si el usuario tiene MFA, la sesion queda en estado pendiente hasta `POST /api/auth/mfa/verify`
+- si el usuario tiene MFA, la sesion queda en estado pendiente hasta completar `POST /api/auth/mfa/verify` o `POST /api/auth/webauthn/authentication/verify`
+- `login` devuelve `availableMfaMethods` para que el frontend sepa si debe mostrar `totp`, `recovery_code` o `webauthn`
 - `login` y `reauthenticate` aplican rate limiting por correo/usuario e IP usando `Redis`
 - las sesiones viven en `Redis`
 - `refresh` rota la sesion creando primero el reemplazo y solo despues revoca la anterior
@@ -203,12 +205,36 @@ El modulo actual soporta:
 
 - setup de TOTP
 - verificacion con TOTP
+- registro de credenciales WebAuthn/passkeys
+- verificacion WebAuthn para completar login MFA
+- verificacion WebAuthn para reautenticacion critica
+- listado de credenciales WebAuthn activas
+- revocacion individual de credenciales WebAuthn
 - recovery codes
 - regeneracion de recovery codes
 - disable voluntario
 - reset administrativo
 - rollback de estado MFA si el endurecimiento de sesiones no se puede completar
 - throttling y lockout por intentos fallidos
+
+### WebAuthn y passkeys
+
+El backend ya implementa la base de passkeys:
+
+- `POST /api/auth/webauthn/registration/options`
+- `POST /api/auth/webauthn/registration/verify`
+- `POST /api/auth/webauthn/authentication/options`
+- `POST /api/auth/webauthn/authentication/verify`
+- `GET /api/auth/webauthn/credentials`
+- `DELETE /api/auth/webauthn/credentials/:credentialId`
+
+Las challenges viven en `Redis` y las credenciales durables viven en `PostgreSQL`.
+
+Notas operativas:
+
+- `login` puede exigir `webauthn` como segundo factor
+- `reauthenticate` con password ya no es suficiente si el usuario tiene factores MFA activos; en ese caso debe usarse un factor MFA registrado
+- la ceremonia WebAuthn requiere navegador real y un `origin` permitido en `WEBAUTHN_ORIGINS`; `PowerShell` y `curl` no sustituyen esa parte
 
 ### Pagos
 
@@ -270,6 +296,9 @@ Ajusta al menos:
 - `DATABASE_URL`
 - `DIRECT_DATABASE_URL`
 - `REDIS_URL`
+- `WEBAUTHN_RP_NAME`
+- `WEBAUTHN_RP_ID`
+- `WEBAUTHN_ORIGINS`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 
@@ -383,6 +412,7 @@ Que hace cada uno:
 - `seed:admin`: bootstrap del usuario administrador; asume Prisma Client ya generado por `verify`, `infra:up`, `validate:local` o `npm run prisma:generate`
 - `smoke:test`: valida endpoints principales contra una API ya levantada
 - `smoke:test` ahora tambien recorre el CRUD de `customers` y comprueba el salto `database -> cache` en Redis antes de pagos y facturas
+- `smoke:test` no automatiza la ceremonia browser-based de WebAuthn; para passkeys se cubren unit tests y validacion manual desde frontend o navegador real
 - `validate:local`: `verify` + `lint` + infraestructura + arranque + smoke tests
 - `validate:full`: alias legible de `validate:local`
 - `prisma:migrate:controlled`: corre `generate`, `migrate status` y `migrate deploy` de forma controlada
@@ -405,6 +435,7 @@ Nota operativa:
 - `start-local` ya revisa `DIRECT_DATABASE_URL` y `REDIS_URL`; si apuntan a Neon o Redis administrado, no asume `localhost`
 - `validate:local` exige `health/live.status=ok` y `health/ready.status=ready`, y si la API no levanta o el smoke falla imprime logs recientes para diagnostico rapido
 - si `validate:local` arranca la API y luego falla, limpia el proceso para no dejar el puerto `4000` ocupado
+- si cambias `WEBAUTHN_RP_ID` o `WEBAUTHN_ORIGINS`, valida la ceremonia desde un navegador real del mismo origen que usara el frontend
 
 ## CI/CD preparado para repo
 
@@ -509,7 +540,7 @@ Usa esto si quieres probar ya con una base mas parecida a nube:
 Estado validado:
 
 - Neon como PostgreSQL durable
-- Redis local para sesiones, rate limiting y cache
+- Redis local o administrado para sesiones, rate limiting, cache y challenges WebAuthn
 - `validate:local` verde contra Neon + Redis
 
 ### Ambiente productivo

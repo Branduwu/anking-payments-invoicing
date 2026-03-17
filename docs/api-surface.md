@@ -25,6 +25,7 @@ Prefijo sugerido: `/api`
 - crea sesion
 - rota `sessionId`
 - devuelve cookie segura
+- si el usuario tiene MFA, deja la sesion en estado pendiente y devuelve `availableMfaMethods`
 
 ### `POST /auth/logout`
 
@@ -49,6 +50,47 @@ Prefijo sugerido: `/api`
 - eleva `mfaLevel`
 - habilita reautenticacion reciente cuando aplique
 - acepta TOTP y recovery code
+
+### `POST /auth/webauthn/registration/options`
+
+- requiere sesion
+- requiere reautenticacion reciente
+- genera challenge de registro WebAuthn
+- usa `Redis` para guardar la challenge temporal
+
+### `POST /auth/webauthn/registration/verify`
+
+- requiere sesion
+- requiere reautenticacion reciente
+- verifica la respuesta WebAuthn
+- persiste la credencial en `PostgreSQL`
+- puede generar recovery codes si es el primer factor primario MFA del usuario
+
+### `POST /auth/webauthn/authentication/options`
+
+- requiere sesion valida o sesion pendiente de MFA
+- genera challenge WebAuthn para completar login o reautenticacion
+- usa `Redis` para guardar la challenge temporal
+
+### `POST /auth/webauthn/authentication/verify`
+
+- requiere sesion valida o sesion pendiente de MFA
+- verifica la respuesta WebAuthn
+- completa MFA de login o reautenticacion segun el contexto
+- actualiza contador y `lastUsedAt` de la credencial
+
+### `GET /auth/webauthn/credentials`
+
+- requiere sesion
+- requiere reautenticacion reciente
+- lista credenciales WebAuthn activas del usuario
+
+### `DELETE /auth/webauthn/credentials/:credentialId`
+
+- requiere sesion
+- requiere reautenticacion reciente
+- revoca una credencial WebAuthn activa
+- si era el ultimo factor primario MFA, limpia MFA del usuario
 
 ### `POST /auth/mfa/setup`
 
@@ -79,8 +121,8 @@ Prefijo sugerido: `/api`
 
 - requiere sesion
 - valida password actual
-- abre una nueva ventana corta de reautenticacion
-- primer metodo util para operaciones sensibles mientras MFA sigue pendiente
+- abre una nueva ventana corta de reautenticacion cuando el usuario no tiene MFA activo
+- si el usuario tiene MFA activo, la reautenticacion reforzada debe completarse con TOTP, recovery code o WebAuthn
 
 ## Sessions
 

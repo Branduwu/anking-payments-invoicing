@@ -15,7 +15,7 @@ Este documento explica como levantar la plataforma localmente, que valida cada s
 
 ### Redis
 
-- guarda sesiones stateful y datos efimeros de MFA.
+- guarda sesiones stateful, challenges WebAuthn y datos efimeros de MFA.
 - escucha en `localhost:6379`.
 
 ### API NestJS
@@ -85,6 +85,8 @@ Si el usuario configurado tiene MFA habilitado, el script intenta completar `POS
 Si no existe alguno de esos valores, el smoke test falla de forma explicita para evitar una falsa validacion.
 
 El script ya contempla compatibilidad con Windows PowerShell 5.1 para las llamadas HTTP, asi que no depende del motor viejo de Internet Explorer.
+
+El smoke test no automatiza WebAuthn/passkeys porque la ceremonia requiere navegador real, `origin` valido y APIs del browser. La cobertura de passkeys hoy vive en pruebas unitarias y en validacion manual desde frontend o navegador.
 
 El CRUD de `customers` esta pensado como verificacion util de orquestacion:
 
@@ -188,6 +190,13 @@ npm.cmd run validate:local
 - `ADMIN_MFA_TOTP_CODE`
 - `ADMIN_MFA_RECOVERY_CODE`
 
+### WebAuthn
+
+- `WEBAUTHN_RP_NAME`
+- `WEBAUTHN_RP_ID`
+- `WEBAUTHN_ORIGINS`
+- `WEBAUTHN_TIMEOUT_MS`
+
 ### Timbrado
 
 - `PAC_PROVIDER`
@@ -214,8 +223,15 @@ npm.cmd run validate:local
 - `POST /api/auth/mfa/recovery-codes/regenerate`
 - `POST /api/auth/mfa/disable`
 - `POST /api/auth/mfa/admin/reset`
+- `POST /api/auth/webauthn/registration/options`
+- `POST /api/auth/webauthn/registration/verify`
+- `POST /api/auth/webauthn/authentication/options`
+- `POST /api/auth/webauthn/authentication/verify`
+- `GET /api/auth/webauthn/credentials`
+- `DELETE /api/auth/webauthn/credentials/:credentialId`
 
 `login` y `reauthenticate` ya aplican rate limiting con contadores en `Redis`. Si el umbral configurado se supera, la API responde `429`.
+`login` tambien devuelve `availableMfaMethods` para que el cliente sepa si debe pedir TOTP, recovery code o WebAuthn.
 
 ### Sesiones
 
@@ -257,6 +273,16 @@ Invoke-RestMethod -Method Get `
   -Uri http://localhost:4000/api/auth/me `
   -WebSession $session
 ```
+
+### WebAuthn
+
+No hay ejemplo util con `PowerShell` o `curl` para registrar o verificar passkeys porque la ceremonia depende de APIs del navegador y del `origin`. Para probar WebAuthn:
+
+1. inicia sesion en un frontend o pagina de prueba servida desde un origen incluido en `WEBAUTHN_ORIGINS`
+2. pide `POST /api/auth/webauthn/registration/options`
+3. llama `navigator.credentials.create(...)`
+4. envia la respuesta a `POST /api/auth/webauthn/registration/verify`
+5. para login o reautenticacion, repite con `navigator.credentials.get(...)` y `POST /api/auth/webauthn/authentication/verify`
 
 ### Crear pago
 
@@ -356,6 +382,13 @@ curl -b cookies.txt \
 - la sesion existe, pero sigue pendiente de segundo factor
 - completa `POST /api/auth/mfa/verify`
 - para `smoke:test`, define `ADMIN_MFA_TOTP_CODE` o `ADMIN_MFA_RECOVERY_CODE`
+
+### `No active WebAuthn registration challenge found` o error de origen WebAuthn
+
+- revisa que el frontend este corriendo en un origen incluido en `WEBAUTHN_ORIGINS`
+- revisa `WEBAUTHN_RP_ID`
+- completa la ceremonia sin recargar o perder la sesion/challenge en Redis
+- recuerda que la challenge expira segun `WEBAUTHN_TIMEOUT_MS`
 
 ### `Audit persistence unavailable`
 

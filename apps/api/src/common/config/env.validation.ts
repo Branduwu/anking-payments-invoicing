@@ -27,6 +27,10 @@ const envSchema = z
     MFA_VERIFY_WINDOW_MINUTES: z.coerce.number().int().positive().default(10),
     MFA_VERIFY_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
     MFA_ENCRYPTION_KEY: z.string().min(32, 'MFA_ENCRYPTION_KEY debe tener al menos 32 caracteres'),
+    WEBAUTHN_RP_NAME: z.string().min(1).default('banking-platform-api'),
+    WEBAUTHN_RP_ID: z.string().min(1).default('localhost'),
+    WEBAUTHN_ORIGINS: z.string().min(1).default('http://localhost:3000,http://localhost:4000'),
+    WEBAUTHN_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
     DATABASE_URL: z
       .string()
       .refine((value) => value.startsWith('postgresql://') || value.startsWith('postgres://'), {

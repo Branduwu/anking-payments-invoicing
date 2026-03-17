@@ -23,24 +23,27 @@ Impacto:
 - la arquitectura ya soporta timbrado
 - aun no esta lista para fiscal real de produccion
 
-### 2. MFA ya es operativo, pero aun no llega a su postura maxima
+### 2. WebAuthn ya existe en backend, pero aun falta cerrar el tramo browser y E2E real
 
 Archivos:
 
 - `apps/api/src/modules/auth/auth.service.ts`
 - `apps/api/src/modules/auth/mfa.service.ts`
+- `apps/api/src/modules/auth/webauthn.service.ts`
+- `apps/api/src/modules/auth/auth.controller.ts`
 
 Estado:
 
 - TOTP, recovery codes, disable y admin reset ya existen
 - ya hay throttling y lockout
 - `login` y `reauthenticate` ya tienen rate limiting en `Redis` por correo/usuario e IP
-- aun falta WebAuthn/passkeys
+- WebAuthn/passkeys ya existe en backend para registro, autenticacion, reautenticacion, auditoria y revocacion
+- aun falta cerrar frontend/browser y una prueba E2E que ejercite la ceremonia real con origen valido
 
 Impacto:
 
-- seguridad operativa buena
-- seguridad de autenticacion aun no es la maxima posible para cuentas criticas
+- la postura de autenticacion ya subio de forma importante
+- todavia falta la validacion operativa de punta a punta desde cliente real para darlo por cerrado a nivel producto
 
 ### 3. La auditoria durable mejoro, pero sigue sin ser fail-closed para todo el universo de eventos
 
@@ -86,7 +89,30 @@ Impacto:
 
 ## Hallazgos resueltos en este ciclo
 
-### 1. Rotacion de sesion ya no expulsa al usuario por un fallo a mitad del refresh
+### 1. WebAuthn/passkeys ya esta implementado en backend
+
+Archivos:
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/src/modules/auth/webauthn.service.ts`
+- `apps/api/src/modules/auth/auth.service.ts`
+- `apps/api/src/modules/auth/auth.controller.ts`
+- `apps/api/src/modules/auth/webauthn.service.spec.ts`
+- `apps/api/src/modules/auth/auth.service.spec.ts`
+
+Estado:
+
+- ya existe modelo durable de credenciales WebAuthn
+- ya existen endpoints de registro, autenticacion, listado y revocacion
+- `login` ya expone `availableMfaMethods`
+- WebAuthn ya puede completar MFA de login y reautenticacion critica
+- ya hay pruebas unitarias y migracion aplicada
+
+Impacto:
+
+- la plataforma ya soporta passkeys en backend sin depender solo de TOTP
+- mejora la postura de MFA para cuentas criticas y reduce dependencia de secretos compartidos
+### 2. Rotacion de sesion ya no expulsa al usuario por un fallo a mitad del refresh
 
 Archivos:
 
@@ -103,7 +129,7 @@ Impacto:
 
 - evita logout involuntario por fallos transitorios en Redis o auditoria durante `refresh`
 
-### 2. Disable y admin reset de MFA ya no dejan PostgreSQL y Redis desalineados
+### 3. Disable y admin reset de MFA ya no dejan PostgreSQL y Redis desalineados
 
 Archivos:
 
@@ -121,7 +147,7 @@ Impacto:
 - evita dejar MFA deshabilitado con sesiones previas todavia activas
 - mantiene una postura conservadora de seguridad ante fallos parciales
 
-### 3. La configuracion de cookie local y de CI ya no usa un prefijo invalido para HTTP
+### 4. La configuracion de cookie local y de CI ya no usa un prefijo invalido para HTTP
 
 Archivos:
 
@@ -141,7 +167,7 @@ Impacto:
 - evita que navegadores rechacen silenciosamente la cookie de sesion en local o CI HTTP
 - alinea mejor el comportamiento local con el comportamiento real del frontend
 
-### 4. `verify` y `validate:local` ya son mas representativos del quality gate real
+### 5. `verify` y `validate:local` ya son mas representativos del quality gate real
 
 Archivos:
 
@@ -245,6 +271,6 @@ Estado actual de `npm audit`:
 ## Recomendacion de siguiente fase
 
 1. elegir e integrar un PAC real
-2. agregar WebAuthn/passkeys
+2. cerrar frontend/browser y E2E real para WebAuthn/passkeys
 3. conectar logs y metricas a observabilidad real
 4. endurecer aun mas la politica fail-closed de auditoria

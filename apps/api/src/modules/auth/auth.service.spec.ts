@@ -36,6 +36,12 @@ describe('AuthService', () => {
       findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
     },
+    webAuthnCredential: {
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+      findMany: jest.fn(),
+    },
     auditEvent: {
       create: jest.fn(),
     },
@@ -70,6 +76,13 @@ describe('AuthService', () => {
     consumeRecoveryCode: jest.fn(),
   };
 
+  const webAuthnService = {
+    beginRegistration: jest.fn(),
+    finishRegistration: jest.fn(),
+    beginAuthentication: jest.fn(),
+    finishAuthentication: jest.fn(),
+  };
+
   const authRateLimitService = {
     assertLoginAllowed: jest.fn(),
     registerLoginFailure: jest.fn(),
@@ -81,11 +94,37 @@ describe('AuthService', () => {
 
   let service: AuthService;
 
+  const buildUser = (overrides: Record<string, unknown> = {}) => ({
+    id: 'usr_1',
+    email: 'admin@example.com',
+    displayName: null,
+    status: UserStatus.ACTIVE,
+    mfaEnabled: false,
+    mfaTotpSecretEnc: null,
+    mfaRecoveryCodes: [] as string[],
+    mfaRecoveryCodesGeneratedAt: null,
+    credentials: {
+      passwordHash: 'hash',
+      failedLoginCount: 0,
+      lockedUntil: null,
+    },
+    webauthnCredentials: [] as Array<Record<string, unknown>>,
+    roles: [] as Array<{ role: UserRole }>,
+    ...overrides,
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
+    authRateLimitService.assertLoginAllowed.mockResolvedValue(undefined);
+    authRateLimitService.registerLoginFailure.mockResolvedValue(undefined);
+    authRateLimitService.clearLoginFailures.mockResolvedValue(undefined);
+    authRateLimitService.assertReauthenticationAllowed.mockResolvedValue(undefined);
+    authRateLimitService.registerReauthenticationFailure.mockResolvedValue(undefined);
+    authRateLimitService.clearReauthenticationFailures.mockResolvedValue(undefined);
     prismaService.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) =>
       callback({
         user: prismaService.user,
+        webAuthnCredential: prismaService.webAuthnCredential,
         auditEvent: prismaService.auditEvent,
       }),
     );
@@ -96,21 +135,12 @@ describe('AuthService', () => {
       sessionsService as never,
       authRateLimitService as never,
       mfaService as never,
+      webAuthnService as never,
     );
   });
 
   it('logs in successfully and opens a session for a valid non-MFA user', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      email: 'admin@example.com',
-      status: UserStatus.ACTIVE,
-      mfaEnabled: false,
-      credentials: {
-        passwordHash: 'hash',
-        failedLoginCount: 0,
-        lockedUntil: null,
-      },
-    });
+    prismaService.user.findUnique.mockResolvedValue(buildUser());
     (verify as jest.Mock).mockResolvedValue(true);
     sessionsService.createSession.mockResolvedValue({
       id: 'sess_1',
@@ -134,7 +164,13 @@ describe('AuthService', () => {
 
     expect(prismaService.user.findUnique).toHaveBeenCalledWith({
       where: { email: 'admin@example.com' },
-      include: { credentials: true },
+      include: {
+        credentials: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: { id: true },
+        },
+      },
     });
     expect(authRateLimitService.assertLoginAllowed).toHaveBeenCalledWith(
       'admin@example.com',
@@ -156,21 +192,20 @@ describe('AuthService', () => {
     expect(result).toEqual({
       sessionId: 'sess_1',
       mfaRequired: false,
+      availableMfaMethods: [],
     });
   });
 
   it('rejects invalid credentials and increments failed logins', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      email: 'admin@example.com',
-      status: UserStatus.ACTIVE,
-      mfaEnabled: false,
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
       credentials: {
         passwordHash: 'hash',
         failedLoginCount: 1,
         lockedUntil: null,
       },
-    });
+      }),
+    );
     (verify as jest.Mock).mockResolvedValue(false);
 
     await expect(
@@ -220,16 +255,54 @@ describe('AuthService', () => {
     );
   });
 
-  it('returns the current user profile with roles and recovery-code count', async () => {
-    prismaService.user.findUniqueOrThrow.mockResolvedValue({
-      id: 'usr_1',
-      email: 'admin@example.com',
-      displayName: 'Admin',
-      status: UserStatus.ACTIVE,
-      mfaEnabled: true,
-      mfaRecoveryCodes: ['one', 'two'],
-      roles: [{ role: UserRole.ADMIN }, { role: UserRole.SECURITY }],
+  it('requires WebAuthn MFA during login when the user has active passkeys', async () => {
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        webauthnCredentials: [{ id: 'cred_1' }],
+      }),
+    );
+    (verify as jest.Mock).mockResolvedValue(true);
+    sessionsService.createSession.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
     });
+
+    const result = await service.login(
+      {
+        email: 'admin@example.com',
+        password: 'super-secret-123',
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(sessionsService.createSession).toHaveBeenCalledWith(
+      'usr_1',
+      expect.objectContaining({
+        requestId: 'req_1',
+      }),
+      'none',
+      true,
+    );
+    expect(result).toEqual({
+      sessionId: 'sess_1',
+      mfaRequired: true,
+      availableMfaMethods: ['webauthn'],
+    });
+  });
+
+  it('returns the current user profile with roles and recovery-code count', async () => {
+    prismaService.user.findUniqueOrThrow.mockResolvedValue(buildUser({
+      displayName: 'Admin',
+      mfaEnabled: true,
+      mfaTotpSecretEnc: 'encrypted-secret',
+      mfaRecoveryCodes: ['one', 'two'],
+      webauthnCredentials: [{ id: 'cred_1' }],
+      roles: [{ role: UserRole.ADMIN }, { role: UserRole.SECURITY }],
+    }));
 
     const result = await service.getMe({
       id: 'sess_1',
@@ -244,20 +317,19 @@ describe('AuthService', () => {
 
     expect(result.user.roles).toEqual([UserRole.ADMIN, UserRole.SECURITY]);
     expect(result.user.recoveryCodesRemaining).toBe(2);
+    expect(result.user.mfaMethods).toEqual(['totp', 'webauthn', 'recovery_code']);
   });
 
   it('redirects password reauthentication to MFA verification when MFA is enabled', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      email: 'admin@example.com',
-      status: UserStatus.ACTIVE,
+    prismaService.user.findUnique.mockResolvedValue(buildUser({
       mfaEnabled: true,
+      mfaTotpSecretEnc: 'encrypted-secret',
       credentials: {
         passwordHash: 'hash',
         failedLoginCount: 0,
         lockedUntil: null,
       },
-    });
+    }));
 
     await expect(
       service.reauthenticate(
@@ -328,11 +400,7 @@ describe('AuthService', () => {
   });
 
   it('creates an MFA setup for a valid user without MFA enabled', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      email: 'admin@example.com',
-      mfaEnabled: false,
-    });
+    prismaService.user.findUnique.mockResolvedValue(buildUser());
     mfaService.createSetup.mockResolvedValue({
       secret: 'SECRET',
       otpauthUrl: 'otpauth://totp/demo',
@@ -363,11 +431,12 @@ describe('AuthService', () => {
   });
 
   it('rejects MFA setup if MFA is already enabled', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      email: 'admin@example.com',
-      mfaEnabled: true,
-    });
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+      }),
+    );
 
     await expect(
       service.setupMfa(
@@ -390,12 +459,7 @@ describe('AuthService', () => {
   });
 
   it('enables MFA and returns recovery codes when pending setup verification succeeds', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      mfaEnabled: false,
-      mfaTotpSecretEnc: null,
-      mfaRecoveryCodes: [],
-    });
+    prismaService.user.findUnique.mockResolvedValue(buildUser());
     mfaService.verifyPendingSetup.mockResolvedValue('encrypted-secret');
     mfaService.generateRecoveryCodes.mockReturnValue({
       codes: ['AAAA-BBBB-CCCC-DDDD', 'EEEE-FFFF-GGGG-HHHH'],
@@ -441,12 +505,13 @@ describe('AuthService', () => {
   });
 
   it('accepts a recovery code and downgrades the remaining recovery-code count', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      mfaEnabled: true,
-      mfaTotpSecretEnc: 'encrypted-secret',
-      mfaRecoveryCodes: ['hash1', 'hash2'],
-    });
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+        mfaRecoveryCodes: ['hash1', 'hash2'],
+      }),
+    );
     mfaService.consumeRecoveryCode.mockResolvedValue({
       matched: true,
       remainingHashes: ['hash2'],
@@ -496,11 +561,12 @@ describe('AuthService', () => {
   });
 
   it('regenerates recovery codes for a user with MFA enabled', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      mfaEnabled: true,
-      mfaTotpSecretEnc: 'encrypted-secret',
-    });
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+      }),
+    );
     mfaService.generateRecoveryCodes.mockReturnValue({
       codes: ['AAAA-BBBB-CCCC-DDDD'],
       hashes: ['hash1'],
@@ -527,14 +593,162 @@ describe('AuthService', () => {
     expect(result.remainingRecoveryCodes).toBe(1);
   });
 
-  it('disables MFA and revokes other sessions', async () => {
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      mfaEnabled: true,
-      mfaTotpSecretEnc: 'encrypted-secret',
-      mfaRecoveryCodes: ['hash1'],
-      mfaRecoveryCodesGeneratedAt: new Date('2026-03-16T00:00:00.000Z'),
+  it('registers a WebAuthn credential and generates recovery codes on first enrollment', async () => {
+    prismaService.user.findUnique.mockResolvedValue(buildUser());
+    mfaService.generateRecoveryCodes.mockReturnValue({
+      codes: ['AAAA-BBBB-CCCC-DDDD'],
+      hashes: ['hash1'],
     });
+    webAuthnService.finishRegistration.mockResolvedValue({
+      verified: true,
+      registrationInfo: {
+        credential: {
+          id: 'webauthn_1',
+          publicKey: Buffer.from('public-key'),
+          counter: 0,
+        },
+        credentialDeviceType: 'multiDevice',
+        credentialBackedUp: true,
+      },
+    });
+
+    const result = await service.finishWebAuthnRegistration(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'none',
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        id: 'webauthn_1',
+        rawId: 'webauthn_1',
+        type: 'public-key',
+        response: {
+          clientDataJSON: 'client',
+          attestationObject: 'attestation',
+          transports: ['internal'],
+        },
+        clientExtensionResults: {},
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(webAuthnService.finishRegistration).toHaveBeenCalledWith('sess_1', expect.any(Object));
+    expect(prismaService.webAuthnCredential.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'usr_1',
+        credentialId: 'webauthn_1',
+      }),
+    });
+    expect(result).toEqual({
+      credentialId: 'webauthn_1',
+      recoveryCodes: ['AAAA-BBBB-CCCC-DDDD'],
+      remainingRecoveryCodes: 1,
+      totalCredentials: 1,
+    });
+  });
+
+  it('verifies WebAuthn authentication and marks the session as reauthenticated', async () => {
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        webauthnCredentials: [
+          {
+            id: 'cred_1',
+            credentialId: 'webauthn_1',
+            publicKey: Buffer.from('public-key'),
+            counter: 1,
+            transports: ['internal'],
+            deviceType: 'multiDevice',
+            backedUp: true,
+          },
+        ],
+      }),
+    );
+    webAuthnService.finishAuthentication.mockResolvedValue({
+      verified: true,
+      authenticationInfo: {
+        credentialID: 'webauthn_1',
+        newCounter: 2,
+        userVerified: true,
+        credentialDeviceType: 'multiDevice',
+        credentialBackedUp: true,
+        origin: 'http://localhost:3000',
+        rpID: 'localhost',
+      },
+    });
+    sessionsService.completeMfaChallenge.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'webauthn',
+    });
+    sessionsService.markReauthenticated.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'webauthn',
+      reauthenticatedUntil: new Date('2026-03-16T00:05:00.000Z'),
+    });
+
+    const result = await service.finishWebAuthnAuthentication(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'none',
+        requiresMfa: true,
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        id: 'webauthn_1',
+        rawId: 'webauthn_1',
+        type: 'public-key',
+        response: {
+          clientDataJSON: 'client',
+          authenticatorData: 'auth-data',
+          signature: 'signature',
+        },
+        clientExtensionResults: {},
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+      'login',
+    );
+
+    expect(webAuthnService.finishAuthentication).toHaveBeenCalledWith(
+      'sess_1',
+      'login',
+      expect.any(Object),
+      expect.objectContaining({
+        credentialId: 'webauthn_1',
+      }),
+    );
+    expect(sessionsService.completeMfaChallenge).toHaveBeenCalledWith('sess_1', 'webauthn');
+    expect(result.purpose).toBe('login');
+    expect(result.session.reauthenticatedUntil).toBeInstanceOf(Date);
+  });
+
+  it('disables MFA and revokes other sessions', async () => {
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+        mfaRecoveryCodes: ['hash1'],
+        mfaRecoveryCodesGeneratedAt: new Date('2026-03-16T00:00:00.000Z'),
+        webauthnCredentials: [{ id: 'cred_1' }],
+      }),
+    );
     sessionsService.revokeAllSessions.mockResolvedValue(2);
     sessionsService.completeMfaChallenge.mockResolvedValue({
       id: 'sess_1',
@@ -572,13 +786,15 @@ describe('AuthService', () => {
 
   it('restores the previous MFA state when disabling MFA fails during session enforcement', async () => {
     const generatedAt = new Date('2026-03-16T00:00:00.000Z');
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_1',
-      mfaEnabled: true,
-      mfaTotpSecretEnc: 'encrypted-secret',
-      mfaRecoveryCodes: ['hash1'],
-      mfaRecoveryCodesGeneratedAt: generatedAt,
-    });
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+        mfaRecoveryCodes: ['hash1'],
+        mfaRecoveryCodesGeneratedAt: generatedAt,
+        webauthnCredentials: [{ id: 'cred_1' }],
+      }),
+    );
     sessionsService.revokeAllSessions.mockRejectedValue(new Error('redis unavailable'));
 
     await expect(
@@ -661,13 +877,17 @@ describe('AuthService', () => {
   it('restores the target MFA state when admin reset fails during session enforcement', async () => {
     const generatedAt = new Date('2026-03-16T00:00:00.000Z');
     prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.ADMIN }]);
-    prismaService.user.findUnique.mockResolvedValue({
-      id: 'usr_2',
-      mfaEnabled: true,
-      mfaTotpSecretEnc: 'encrypted-secret',
-      mfaRecoveryCodes: ['hash1'],
-      mfaRecoveryCodesGeneratedAt: generatedAt,
-    });
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        id: 'usr_2',
+        email: 'other@example.com',
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+        mfaRecoveryCodes: ['hash1'],
+        mfaRecoveryCodesGeneratedAt: generatedAt,
+        webauthnCredentials: [{ id: 'cred_2' }],
+      }),
+    );
     sessionsService.revokeAllSessions.mockRejectedValue(new Error('redis unavailable'));
 
     await expect(

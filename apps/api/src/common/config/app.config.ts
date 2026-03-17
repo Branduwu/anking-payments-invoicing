@@ -63,6 +63,15 @@ export default registerAs('app', () => {
     mfaVerifyWindowMinutes: Number(process.env.MFA_VERIFY_WINDOW_MINUTES ?? 10),
     mfaVerifyLockoutMinutes: Number(process.env.MFA_VERIFY_LOCKOUT_MINUTES ?? 15),
     mfaEncryptionKey: process.env.MFA_ENCRYPTION_KEY ?? '',
+    webauthn: {
+      rpName: process.env.WEBAUTHN_RP_NAME ?? process.env.APP_NAME ?? 'banking-platform-api',
+      rpId: process.env.WEBAUTHN_RP_ID ?? 'localhost',
+      origins: parseList(process.env.WEBAUTHN_ORIGINS, [
+        'http://localhost:3000',
+        'http://localhost:4000',
+      ]),
+      timeoutMs: Number(process.env.WEBAUTHN_TIMEOUT_MS ?? 60_000),
+    },
   },
   audit: {
     failClosedDefault: parseBoolean(process.env.AUDIT_FAIL_CLOSED_DEFAULT, false),

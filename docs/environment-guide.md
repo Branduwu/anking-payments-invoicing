@@ -36,6 +36,7 @@ Guarda lo efimero:
 - expiracion idle
 - expiracion absoluta
 - estado MFA de sesion
+- challenges temporales de WebAuthn
 - ventana de reautenticacion
 - rate limiting
 - cache de lecturas rapidas
@@ -48,6 +49,7 @@ El proyecto usa sesiones server-side:
 - usa cookie con `sessionId`
 - valida la sesion en `Redis` en cada request protegida
 - revoca sesiones de inmediato desde `Redis`
+- completa MFA con TOTP, recovery codes o WebAuthn/passkeys
 - registra auditoria durable en `PostgreSQL`
 
 ## Escenario 1. Local completo con Docker
@@ -72,6 +74,9 @@ Minimo recomendado:
 - `MFA_ENCRYPTION_KEY`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
+- `WEBAUTHN_RP_NAME`
+- `WEBAUTHN_RP_ID`
+- `WEBAUTHN_ORIGINS`
 
 Deja estas URLs locales:
 
@@ -117,6 +122,8 @@ Recomendacion:
 - `DATABASE_URL`: URL pooled de Neon para la aplicacion
 - `DIRECT_DATABASE_URL`: URL directa para migraciones Prisma
 - usa una base dedicada y vacia para el proyecto, por ejemplo `banking_platform`
+- si el frontend corre en otro origen, agrega ese origen a `WEBAUTHN_ORIGINS`
+- para local, `WEBAUTHN_RP_ID=localhost` suele ser el valor correcto
 
 ### Redis
 
@@ -219,6 +226,10 @@ No es solo cambiar URLs. Debes cambiar postura operativa.
 - `AUTH_REAUTH_RATE_LIMIT_MAX_ATTEMPTS`
 - `MFA_VERIFY_MAX_ATTEMPTS`
 - `MFA_VERIFY_LOCKOUT_MINUTES`
+- `WEBAUTHN_RP_NAME`
+- `WEBAUTHN_RP_ID`
+- `WEBAUTHN_ORIGINS`
+- `WEBAUTHN_TIMEOUT_MS`
 
 ### Admin bootstrap
 
@@ -275,6 +286,13 @@ docker compose ps
 - revisa `REDIS_URL`
 - revisa que Redis este arriba
 - revisa `GET /api/health/ready`
+
+### WebAuthn falla aunque login normal funcione
+
+- revisa `WEBAUTHN_RP_ID`
+- revisa `WEBAUTHN_ORIGINS`
+- confirma que el navegador este usando exactamente uno de los origenes permitidos
+- recuerda que la ceremonia WebAuthn requiere navegador real; `curl` o `PowerShell` no sirven para registrar o verificar passkeys
 
 ### El login existe pero rutas protegidas fallan
 

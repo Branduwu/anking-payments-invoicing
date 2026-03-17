@@ -21,10 +21,29 @@ model User {
   updatedAt        DateTime             @updatedAt
   credentials      PasswordCredential?
   roles            UserRoleAssignment[]
+  webauthnCredentials WebAuthnCredential[]
   customers        Customer[]
   payments         Payment[]
   invoices         Invoice[]
   auditEvents      AuditEvent[]
+}
+
+model WebAuthnCredential {
+  id           String   @id @default(cuid())
+  userId       String
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      Int      @default(0)
+  transports   String[] @default([])
+  deviceType   String
+  backedUp     Boolean  @default(false)
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, createdAt])
 }
 
 model Customer {
