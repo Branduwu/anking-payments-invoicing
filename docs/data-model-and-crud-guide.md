@@ -51,6 +51,25 @@ Importante:
 
 La fuente de verdad del modelo es [schema.prisma](../apps/api/prisma/schema.prisma).
 
+## Diagrama ER simple
+
+```text
+User
+  |-- 1:1 --> PasswordCredential
+  |-- 1:N --> UserRoleAssignment
+  |-- 1:N --> WebAuthnCredential
+  |-- 1:N --> Customer
+  |-- 1:N --> Payment
+  |-- 1:N --> Invoice
+  `-- 1:N --> AuditEvent
+```
+
+Lectura rapida:
+
+- `User` es la entidad central
+- todo lo operativo de identidad y negocio cuelga de `User`
+- `AuditEvent` puede existir con o sin `userId`, pero cuando hay usuario autenticado se relaciona con el mismo
+
 ### `User`
 
 Tabla principal de identidad.
@@ -219,6 +238,54 @@ Notas:
 
 - `userId` es opcional para eventos anonimos o antes de autenticar
 - `metadata` es `JSON`
+
+## Resumen rapido: PostgreSQL vs Redis
+
+### Que vive en PostgreSQL
+
+Usa `PostgreSQL` para lo que debe durar, auditarse y sobrevivir reinicios:
+
+- `User`
+- `PasswordCredential`
+- `UserRoleAssignment`
+- `WebAuthnCredential`
+- `Customer`
+- `Payment`
+- `Invoice`
+- `AuditEvent`
+
+Regla practica:
+
+- si es dato de negocio, identidad o evidencia durable, va en `PostgreSQL`
+
+### Que vive en Redis
+
+Usa `Redis` para lo que cambia rapido o debe revocarse de inmediato:
+
+- sesiones activas
+- ventanas de reautenticacion
+- challenges WebAuthn
+- throttling y lockout
+- rate limiting
+- cache de lecturas como `customers`
+
+Claves conceptuales mas importantes:
+
+```text
+session:{sessionId}
+user_sessions:{userId}
+webauthn:registration:{sessionId}
+webauthn:authentication:{sessionId}:{purpose}
+ratelimit:auth:login:{email|ip}
+ratelimit:auth:reauth:{userId|ip}
+platform:customers:list:all
+platform:customers:list:user:{userId}
+platform:customers:{customerId}
+```
+
+Regla practica:
+
+- si es estado efimero, revocable, temporal o cacheable, va en `Redis`
 
 ## Enums actuales
 

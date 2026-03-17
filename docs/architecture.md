@@ -30,6 +30,10 @@ La arquitectura objetivo ya esta aterrizada en una API modular con estos bloques
 - `audit`: persistencia de eventos criticos y politicas fail-closed
 - `health`: liveness, readiness y modo degradado
 
+Referencia util para el modelo actual:
+
+- `docs/data-model-and-crud-guide.md`
+
 ## Flujo real de autenticacion
 
 1. El cliente envia email y password a `POST /api/auth/login`.
@@ -135,6 +139,10 @@ Estructura recomendada para `session:{sessionId}`:
 - contadores de rate limiting
 - datos temporales de MFA o challenges
 - lockouts y ventanas de MFA
+
+La guia detallada del reparto real entre tablas y claves operativas vive en:
+
+- `docs/data-model-and-crud-guide.md`
 
 ## Fronteras de dominio
 

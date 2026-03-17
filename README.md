@@ -186,6 +186,10 @@ Aqui va lo efimero, cambiante y de respuesta rapida:
 
 Redis no reemplaza a PostgreSQL. Redis acelera y permite revocacion inmediata; PostgreSQL conserva la evidencia y el dato de negocio.
 
+Si quieres ver el modelo con mas detalle, incluyendo un ER simple y el CRUD de referencia, consulta:
+
+- `docs/data-model-and-crud-guide.md`
+
 ### Auth y sesiones
 
 - `POST /api/auth/login` valida email y password contra `PostgreSQL`
