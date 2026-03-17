@@ -422,6 +422,10 @@ export class AuthService {
         mfaEnabled: true,
         mfaTotpSecretEnc: true,
         mfaRecoveryCodes: true,
+        webauthnCredentials: {
+          where: { revokedAt: null },
+          select: { id: true },
+        },
       },
     });
 
@@ -432,53 +436,63 @@ export class AuthService {
     let recoveryCodes: string[] | undefined;
     let remainingRecoveryCodes = user.mfaRecoveryCodes.length;
     let sessionMfaLevel: MfaLevel = 'totp';
+    const hasPrimaryMfaFactor = this.hasPrimaryMfaFactor(
+      user.mfaTotpSecretEnc,
+      user.webauthnCredentials.length,
+    );
 
-    if (user.mfaEnabled && user.mfaTotpSecretEnc) {
-      if (payload.method === 'recovery_code') {
-        const recoveryResult = await this.mfaService.consumeRecoveryCode(
-          user.mfaRecoveryCodes,
-          payload.code,
-          {
-            scope: 'recovery',
-            actorId: user.id,
-          },
-        );
-
-        if (!recoveryResult.matched) {
-          await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
-            reason: 'invalid-recovery-code',
-          });
-          throw this.invalidCredentialsError();
-        }
-
-        remainingRecoveryCodes = recoveryResult.remainingHashes.length;
-        sessionMfaLevel = 'recovery';
-
-        await this.prismaService.$transaction(async (tx) => {
-          await tx.user.update({
-            where: { id: user.id },
-            data: {
-              mfaRecoveryCodes: recoveryResult.remainingHashes,
-            },
-          });
-
-          await tx.auditEvent.create({
-            data: this.auditService.buildCreateData({
-              action: 'auth.mfa.verify.success',
-              result: 'SUCCESS',
-              userId: user.id,
-              requestId: metadata.requestId,
-              ipAddress: metadata.ipAddress,
-              entityType: 'session',
-              entityId: session.id,
-              metadata: {
-                mode: 'recovery_code',
-                remainingRecoveryCodes,
-              },
-            }),
-          });
+    if (payload.method === 'recovery_code') {
+      if (!hasPrimaryMfaFactor || user.mfaRecoveryCodes.length === 0) {
+        await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
+          reason: 'recovery-code-unavailable',
         });
-      } else {
+        throw new BadRequestException('Recovery codes are not configured for this account');
+      }
+
+      const recoveryResult = await this.mfaService.consumeRecoveryCode(
+        user.mfaRecoveryCodes,
+        payload.code,
+        {
+          scope: 'recovery',
+          actorId: user.id,
+        },
+      );
+
+      if (!recoveryResult.matched) {
+        await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
+          reason: 'invalid-recovery-code',
+        });
+        throw this.invalidCredentialsError();
+      }
+
+      remainingRecoveryCodes = recoveryResult.remainingHashes.length;
+      sessionMfaLevel = 'recovery';
+
+      await this.prismaService.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            mfaRecoveryCodes: recoveryResult.remainingHashes,
+          },
+        });
+
+        await tx.auditEvent.create({
+          data: this.auditService.buildCreateData({
+            action: 'auth.mfa.verify.success',
+            result: 'SUCCESS',
+            userId: user.id,
+            requestId: metadata.requestId,
+            ipAddress: metadata.ipAddress,
+            entityType: 'session',
+            entityId: session.id,
+            metadata: {
+              mode: 'recovery_code',
+              remainingRecoveryCodes,
+            },
+          }),
+        });
+      });
+    } else if (user.mfaEnabled && user.mfaTotpSecretEnc) {
         const verified = await this.mfaService.verifyEncryptedSecret(
           user.mfaTotpSecretEnc,
           payload.code,
@@ -508,7 +522,11 @@ export class AuthService {
             remainingRecoveryCodes,
           },
         });
-      }
+    } else if (user.mfaEnabled && hasPrimaryMfaFactor) {
+      await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
+        reason: 'totp-not-configured',
+      });
+      throw new BadRequestException('TOTP is not configured for this account');
     } else {
       const pendingSecret = await this.mfaService.verifyPendingSetup(session.id, payload.code);
       if (!pendingSecret) {
@@ -1139,8 +1157,10 @@ export class AuthService {
       where: { id: session.userId },
       select: {
         id: true,
+        mfaEnabled: true,
         mfaTotpSecretEnc: true,
         mfaRecoveryCodes: true,
+        mfaRecoveryCodesGeneratedAt: true,
         webauthnCredentials: {
           where: { revokedAt: null },
           select: {
@@ -1164,6 +1184,7 @@ export class AuthService {
       user.mfaTotpSecretEnc,
       remainingCredentials,
     );
+    const previousMfaState = this.getMfaStateSnapshot(user);
 
     await this.prismaService.$transaction(async (tx) => {
       await tx.webAuthnCredential.update({
@@ -1198,7 +1219,30 @@ export class AuthService {
     });
 
     if (!hasRemainingPrimaryFactor) {
-      await this.sessionsService.updateMfaLevel(session.id, 'none');
+      try {
+        await this.sessionsService.revokeAllSessions(
+          user.id,
+          'webauthn-last-primary-factor-revoked',
+          session.id,
+        );
+        const updatedSession = await this.sessionsService.completeMfaChallenge(session.id, 'none');
+        if (!updatedSession) {
+          throw new UnauthorizedException('Current session is not valid');
+        }
+      } catch (error) {
+        await this.rollbackMfaState(
+          user.id,
+          user.id,
+          previousMfaState,
+          'auth.webauthn.credential.revoked.rollback',
+          metadata,
+          {
+            credentialId,
+            rollbackReason: 'session-enforcement-failed',
+          },
+        );
+        throw error;
+      }
     }
 
     return {
@@ -1243,7 +1287,10 @@ export class AuthService {
     actorUserId: string,
     targetUserId: string,
     snapshot: UserMfaStateSnapshot,
-    action: 'auth.mfa.disabled.rollback' | 'auth.mfa.admin_reset.rollback',
+    action:
+      | 'auth.mfa.disabled.rollback'
+      | 'auth.mfa.admin_reset.rollback'
+      | 'auth.webauthn.credential.revoked.rollback',
     metadata: RequestMetadata,
     extraMetadata?: Record<string, unknown>,
   ): Promise<void> {

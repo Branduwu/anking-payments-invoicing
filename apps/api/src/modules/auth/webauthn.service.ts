@@ -39,6 +39,14 @@ interface WebAuthnAuthenticationChallengePayload {
 
 @Injectable()
 export class WebAuthnService {
+  private static readonly consumeChallengeScript = `
+    local value = redis.call('GET', KEYS[1])
+    if value then
+      redis.call('DEL', KEYS[1])
+    end
+    return value
+  `;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
@@ -170,12 +178,10 @@ export class WebAuthnService {
     sessionId: string,
   ): Promise<WebAuthnRegistrationChallengePayload> {
     const key = this.getRegistrationChallengeKey(sessionId);
-    const payload = await this.redisService.client.get(key);
-    await this.redisService.client.del(key);
-
-    if (!payload) {
-      throw new UnauthorizedException('No active WebAuthn registration challenge found');
-    }
+    const payload = await this.consumeChallengeValue(
+      key,
+      'No active WebAuthn registration challenge found',
+    );
 
     return JSON.parse(payload) as WebAuthnRegistrationChallengePayload;
   }
@@ -196,14 +202,28 @@ export class WebAuthnService {
     sessionId: string,
   ): Promise<WebAuthnAuthenticationChallengePayload> {
     const key = this.getAuthenticationChallengeKey(sessionId);
-    const payload = await this.redisService.client.get(key);
-    await this.redisService.client.del(key);
-
-    if (!payload) {
-      throw new UnauthorizedException('No active WebAuthn authentication challenge found');
-    }
+    const payload = await this.consumeChallengeValue(
+      key,
+      'No active WebAuthn authentication challenge found',
+    );
 
     return JSON.parse(payload) as WebAuthnAuthenticationChallengePayload;
+  }
+
+  private async consumeChallengeValue(key: string, missingMessage: string): Promise<string> {
+    const payload = await this.redisService.client.eval(
+      WebAuthnService.consumeChallengeScript,
+      1,
+      key,
+    );
+    const serializedPayload =
+      typeof payload === 'string' ? payload : Buffer.isBuffer(payload) ? payload.toString('utf8') : null;
+
+    if (!serializedPayload) {
+      throw new UnauthorizedException(missingMessage);
+    }
+
+    return serializedPayload;
   }
 
   private getRegistrationChallengeKey(sessionId: string): string {

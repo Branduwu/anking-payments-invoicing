@@ -112,7 +112,27 @@ Impacto:
 
 - la plataforma ya soporta passkeys en backend sin depender solo de TOTP
 - mejora la postura de MFA para cuentas criticas y reduce dependencia de secretos compartidos
-### 2. Rotacion de sesion ya no expulsa al usuario por un fallo a mitad del refresh
+
+### 2. Recovery codes y revocacion de la ultima passkey ya son consistentes con WebAuthn
+
+Archivos:
+
+- `apps/api/src/modules/auth/auth.service.ts`
+- `apps/api/src/modules/auth/auth.service.spec.ts`
+
+Estado:
+
+- `verifyMfa` ya acepta recovery codes cuando el factor primario MFA activo es solo WebAuthn
+- ya no existe contradiccion entre `availableMfaMethods` y el comportamiento real del endpoint
+- al revocar la ultima credencial WebAuthn ya se endurece la parte de sesiones igual que en un disable de MFA
+- si la enforcement de sesiones falla, el estado MFA previo se restaura y queda auditado
+
+Impacto:
+
+- evita bloquear cuentas WebAuthn-only que dependan de recovery codes como respaldo
+- evita dejar sesiones antiguas con estado MFA stale cuando se elimina el ultimo factor primario
+
+### 3. Rotacion de sesion ya no expulsa al usuario por un fallo a mitad del refresh
 
 Archivos:
 
@@ -129,7 +149,7 @@ Impacto:
 
 - evita logout involuntario por fallos transitorios en Redis o auditoria durante `refresh`
 
-### 3. Disable y admin reset de MFA ya no dejan PostgreSQL y Redis desalineados
+### 4. Disable y admin reset de MFA ya no dejan PostgreSQL y Redis desalineados
 
 Archivos:
 
@@ -147,7 +167,7 @@ Impacto:
 - evita dejar MFA deshabilitado con sesiones previas todavia activas
 - mantiene una postura conservadora de seguridad ante fallos parciales
 
-### 4. La configuracion de cookie local y de CI ya no usa un prefijo invalido para HTTP
+### 5. La configuracion de cookie local y de CI ya no usa un prefijo invalido para HTTP
 
 Archivos:
 
@@ -167,7 +187,7 @@ Impacto:
 - evita que navegadores rechacen silenciosamente la cookie de sesion en local o CI HTTP
 - alinea mejor el comportamiento local con el comportamiento real del frontend
 
-### 5. `verify` y `validate:local` ya son mas representativos del quality gate real
+### 6. `verify` y `validate:local` ya son mas representativos del quality gate real
 
 Archivos:
 
@@ -189,6 +209,23 @@ Impacto:
 - reduce falsos rojos locales por bloqueos temporales del engine
 - acerca mas la validacion local al pipeline real de CI
 - mejora mucho el diagnostico del tramo full local con dependencias reales
+
+### 7. Las challenges WebAuthn ya se consumen de forma atomica en Redis
+
+Archivos:
+
+- `apps/api/src/modules/auth/webauthn.service.ts`
+- `apps/api/src/modules/auth/webauthn.service.spec.ts`
+
+Estado:
+
+- el consumo de challenges de registro y autenticacion ya no usa `GET` seguido de `DEL`
+- ahora usa una operacion atomica en Redis para leer y borrar en un solo paso logico
+
+Impacto:
+
+- reduce la ventana de replay bajo concurrencia
+- fortalece la integridad de la ceremonia WebAuthn en login y reautenticacion
 
 ## Mejoras aplicadas en este ciclo
 

@@ -65,6 +65,7 @@ describe('AuthService', () => {
     revokeAllSessions: jest.fn(),
     rotateSession: jest.fn(),
     completeMfaChallenge: jest.fn(),
+    updateMfaLevel: jest.fn(),
   };
 
   const mfaService = {
@@ -560,6 +561,64 @@ describe('AuthService', () => {
     expect(result.remainingRecoveryCodes).toBe(1);
   });
 
+  it('accepts recovery codes when WebAuthn is the only primary MFA factor', async () => {
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: null,
+        mfaRecoveryCodes: ['hash1', 'hash2'],
+        webauthnCredentials: [{ id: 'cred_1' }],
+      }),
+    );
+    mfaService.consumeRecoveryCode.mockResolvedValue({
+      matched: true,
+      remainingHashes: ['hash1'],
+    });
+    sessionsService.completeMfaChallenge.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'recovery',
+    });
+    sessionsService.markReauthenticated.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      reauthenticatedUntil: new Date('2026-03-16T00:05:00.000Z'),
+    });
+
+    const result = await service.verifyMfa(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'none',
+        requiresMfa: true,
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        code: 'AAAA-BBBB-CCCC-DDDD',
+        method: 'recovery_code',
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(mfaService.consumeRecoveryCode).toHaveBeenCalledWith(
+      ['hash1', 'hash2'],
+      'AAAA-BBBB-CCCC-DDDD',
+      {
+        scope: 'recovery',
+        actorId: 'usr_1',
+      },
+    );
+    expect(mfaService.verifyPendingSetup).not.toHaveBeenCalled();
+    expect(result.remainingRecoveryCodes).toBe(1);
+  });
+
   it('regenerates recovery codes for a user with MFA enabled', async () => {
     prismaService.user.findUnique.mockResolvedValue(
       buildUser({
@@ -937,6 +996,124 @@ describe('AuthService', () => {
         result: 'SUCCESS',
         userId: 'usr_admin',
         entityId: 'usr_2',
+      }),
+    });
+  });
+
+  it('revokes other sessions and disables MFA when the last WebAuthn primary factor is removed', async () => {
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: null,
+        mfaRecoveryCodes: ['hash1'],
+        mfaRecoveryCodesGeneratedAt: new Date('2026-03-16T00:00:00.000Z'),
+        webauthnCredentials: [{ id: 'cred_1' }],
+      }),
+    );
+    sessionsService.revokeAllSessions.mockResolvedValue(2);
+    sessionsService.completeMfaChallenge.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'none',
+    });
+
+    const result = await service.revokeWebAuthnCredential(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'webauthn',
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      'cred_1',
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(sessionsService.revokeAllSessions).toHaveBeenCalledWith(
+      'usr_1',
+      'webauthn-last-primary-factor-revoked',
+      'sess_1',
+    );
+    expect(sessionsService.completeMfaChallenge).toHaveBeenCalledWith('sess_1', 'none');
+    expect(result).toEqual({
+      remainingCredentials: 0,
+      mfaEnabled: false,
+    });
+  });
+
+  it('restores the previous MFA state when revoking the last WebAuthn credential fails during session enforcement', async () => {
+    const generatedAt = new Date('2026-03-16T00:00:00.000Z');
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: null,
+        mfaRecoveryCodes: ['hash1'],
+        mfaRecoveryCodesGeneratedAt: generatedAt,
+        webauthnCredentials: [{ id: 'cred_1' }],
+      }),
+    );
+    sessionsService.revokeAllSessions.mockRejectedValue(new Error('redis unavailable'));
+
+    await expect(
+      service.revokeWebAuthnCredential(
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'webauthn',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        'cred_1',
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toThrow('redis unavailable');
+
+    expect(prismaService.user.update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'usr_1' },
+      data: {
+        mfaEnabled: false,
+        mfaTotpSecretEnc: null,
+        mfaRecoveryCodes: [],
+        mfaRecoveryCodesGeneratedAt: null,
+      },
+    });
+    expect(prismaService.user.update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'usr_1' },
+      data: {
+        mfaEnabled: true,
+        mfaTotpSecretEnc: null,
+        mfaRecoveryCodes: ['hash1'],
+        mfaRecoveryCodesGeneratedAt: generatedAt,
+      },
+    });
+    expect(prismaService.webAuthnCredential.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: {
+          in: ['cred_1'],
+        },
+      },
+      data: {
+        revokedAt: null,
+      },
+    });
+    expect(prismaService.auditEvent.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({
+        action: 'auth.webauthn.credential.revoked.rollback',
+        result: 'SUCCESS',
+        userId: 'usr_1',
+        entityId: 'usr_1',
       }),
     });
   });

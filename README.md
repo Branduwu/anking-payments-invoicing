@@ -248,6 +248,7 @@ Notas operativas:
 - `GET /api/customers` y `GET /api/customers/:id` prueban cache en Redis con `source=database|cache`
 - `PATCH /api/customers/:id` y `DELETE /api/customers/:id` invalidan cache y registran auditoria
 - sirve como CRUD de verificacion para confirmar orquestacion entre API, Prisma, PostgreSQL/Neon y Redis
+- la guia paso a paso del modelo de tablas y del CRUD vive en `docs/data-model-and-crud-guide.md`
 
 ### Facturas
 
@@ -589,6 +590,7 @@ anking-payments-invoicing
 - `docs/development-roadmap.md`
 - `docs/implementation-status.md`
 - `docs/api-surface.md`
+- `docs/data-model-and-crud-guide.md`
 - `docs/environment-guide.md`
 - `docs/local-runbook.md`
 - `docs/ci-cd.md`

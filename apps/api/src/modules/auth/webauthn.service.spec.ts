@@ -35,8 +35,7 @@ describe('WebAuthnService', () => {
 
   const redisClient = {
     set: jest.fn(),
-    get: jest.fn(),
-    del: jest.fn(),
+    eval: jest.fn(),
   };
 
   const redisService = {
@@ -83,7 +82,7 @@ describe('WebAuthnService', () => {
   });
 
   it('verifies authentication using the stored challenge and consumes it', async () => {
-    redisClient.get.mockResolvedValue(JSON.stringify({ challenge: 'challenge-1', purpose: 'login' }));
+    redisClient.eval.mockResolvedValue(JSON.stringify({ challenge: 'challenge-1', purpose: 'login' }));
     (verifyAuthenticationResponse as jest.Mock).mockResolvedValue({
       verified: true,
       authenticationInfo: {
@@ -120,13 +119,17 @@ describe('WebAuthnService', () => {
       },
     );
 
-    expect(redisClient.del).toHaveBeenCalledWith('platform:webauthn:authentication:sess_1');
+    expect(redisClient.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('GET', KEYS[1])"),
+      1,
+      'platform:webauthn:authentication:sess_1',
+    );
     expect(verifyAuthenticationResponse).toHaveBeenCalled();
     expect(result.verified).toBe(true);
   });
 
   it('fails registration verification when the challenge is missing', async () => {
-    redisClient.get.mockResolvedValue(null);
+    redisClient.eval.mockResolvedValue(null);
 
     await expect(
       service.finishRegistration('sess_1', {
