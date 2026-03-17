@@ -69,9 +69,12 @@ Cliente
 .
 |-- .github/
 |   |-- dependabot.yml
+|   |-- ISSUE_TEMPLATE/
+|   |-- PULL_REQUEST_TEMPLATE.md
 |   `-- workflows/
 |       |-- ci.yml
 |       `-- deploy.yml
+|-- CONTRIBUTING.md
 |-- apps/
 |   `-- api/
 |       |-- prisma/
@@ -85,9 +88,14 @@ Cliente
 |   |-- code-audit.md
 |   |-- environment-guide.md
 |   |-- implementation-status.md
+|   |-- diagrams-index.md
 |   |-- local-runbook.md
+|   |-- onboarding.md
 |   |-- observability.md
 |   |-- production-readiness.md
+|   |-- release-checklist.md
+|   |-- github-work-management.md
+|   |-- technical-faq.md
 |   |-- runbooks/
 |   `-- security-baseline.md
 |-- scripts/
@@ -99,6 +107,7 @@ Cliente
 |   |-- validate-local.ps1
 |   `-- verify.ps1
 |-- .env.example
+|-- SECURITY.md
 `-- docker-compose.yml
 ```
 
@@ -579,6 +588,59 @@ Mas detalle en:
 
 - `docs/production-readiness.md`
 
+## Diagramas utiles
+
+Si quieres una vista visual de como funciona autenticacion, sesion, MFA y reautenticacion:
+
+- `docs/architecture.md`
+- `docs/data-model-and-crud-guide.md`
+- `docs/diagrams-index.md`
+
+`docs/architecture.md` ya incluye un diagrama de secuencia para:
+
+- `login -> session -> reauthenticate -> create customer`
+- `reauth -> create payment`
+- `create invoice -> stamp -> cancel`
+
+## Onboarding rapido
+
+Si alguien entra nuevo al repo, el mejor punto de partida ahora es:
+
+- `docs/onboarding.md`
+- `docs/documentation-map.md`
+
+Si quiere ir directo a los diagramas:
+
+- `docs/diagrams-index.md`
+
+Si quiere saber que documento leer segun la tarea:
+
+- `docs/documentation-map.md`
+
+Si quiere resolver errores tecnicos comunes y dudas operativas:
+
+- `docs/technical-faq.md`
+
+Si quiere revisar si un cambio esta listo para push o deploy:
+
+- `docs/release-checklist.md`
+
+Si va a abrir un PR en GitHub:
+
+- `.github/PULL_REQUEST_TEMPLATE.md`
+
+Si va a colaborar en el repo:
+
+- `CONTRIBUTING.md`
+
+Si quiere revisar politica de seguridad y manejo de vulnerabilidades:
+
+- `SECURITY.md`
+
+Si quiere organizar labels, milestones o proyectos en GitHub:
+
+- `docs/github-work-management.md`
+
 ## Nombre de repo sugerido
 
 Si vas a crear el repo remoto desde cero, el nombre recomendado para mantener consistencia con el codigo actual es:
@@ -595,10 +657,20 @@ anking-payments-invoicing
 - `docs/implementation-status.md`
 - `docs/api-surface.md`
 - `docs/data-model-and-crud-guide.md`
+- `docs/documentation-map.md`
+- `docs/diagrams-index.md`
 - `docs/environment-guide.md`
 - `docs/local-runbook.md`
+- `docs/onboarding.md`
+- `docs/technical-faq.md`
 - `docs/ci-cd.md`
 - `docs/observability.md`
 - `docs/code-audit.md`
 - `docs/production-readiness.md`
+- `docs/release-checklist.md`
+- `docs/github-work-management.md`
 - `docs/runbooks/*.md`
+- `.github/PULL_REQUEST_TEMPLATE.md`
+- `.github/ISSUE_TEMPLATE/*`
+- `CONTRIBUTING.md`
+- `SECURITY.md`

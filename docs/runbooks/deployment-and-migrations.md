@@ -17,6 +17,10 @@ Antes de tocar produccion:
 5. confirmar backup reciente de base de datos
 6. confirmar secretos y variables por environment
 
+Checklist complementaria:
+
+- [release-checklist.md](../release-checklist.md)
+
 ## Secuencia recomendada
 
 1. correr `Quality Gate`

@@ -102,6 +102,7 @@ Proceso recomendado:
 
 - `docs/ci-cd.md`
 - `docs/observability.md`
+- `docs/release-checklist.md`
 - `docs/runbooks/incident-response.md`
 - `docs/runbooks/session-revocation.md`
 - `docs/runbooks/secret-rotation.md`

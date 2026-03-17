@@ -70,6 +70,121 @@ Lectura rapida:
 - todo lo operativo de identidad y negocio cuelga de `User`
 - `AuditEvent` puede existir con o sin `userId`, pero cuando hay usuario autenticado se relaciona con el mismo
 
+## Diagrama ER en Mermaid
+
+```mermaid
+erDiagram
+    User ||--o| PasswordCredential : has
+    User ||--o{ UserRoleAssignment : has
+    User ||--o{ WebAuthnCredential : has
+    User ||--o{ Customer : owns
+    User ||--o{ Payment : creates
+    User ||--o{ Invoice : issues
+    User ||--o{ AuditEvent : generates
+
+    User {
+        string id PK
+        string email UK
+        string displayName
+        string status
+        boolean mfaEnabled
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    PasswordCredential {
+        string userId PK_FK
+        string passwordHash
+        datetime passwordChangedAt
+        int failedLoginCount
+        datetime lockedUntil
+    }
+
+    UserRoleAssignment {
+        string id PK
+        string userId FK
+        string role
+        datetime createdAt
+    }
+
+    WebAuthnCredential {
+        string id PK
+        string userId FK
+        string credentialId UK
+        bytes publicKey
+        int counter
+        string deviceType
+        boolean backedUp
+        datetime lastUsedAt
+        datetime revokedAt
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    Customer {
+        string id PK
+        string userId FK
+        string name
+        string taxId
+        string email
+        string phone
+        string status
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    Payment {
+        string id PK
+        string userId FK
+        decimal amount
+        string currency
+        string status
+        string bankAccountRef
+        string externalReference
+        string concept
+        datetime createdAt
+        datetime updatedAt
+        datetime settledAt
+    }
+
+    Invoice {
+        string id PK
+        string userId FK
+        string folio UK
+        string status
+        string customerTaxId
+        string currency
+        decimal subtotal
+        decimal total
+        string pacReference
+        string pacProvider
+        string paymentId
+        datetime stampedAt
+        datetime cancelledAt
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    AuditEvent {
+        string id PK
+        string userId FK
+        string requestId
+        string ipAddress
+        string action
+        string result
+        string entityType
+        string entityId
+        json metadata
+        datetime createdAt
+    }
+```
+
+Notas del diagrama:
+
+- `PasswordCredential` es `1:1` con `User`
+- `UserRoleAssignment`, `WebAuthnCredential`, `Customer`, `Payment`, `Invoice` y `AuditEvent` son `1:N`
+- `Payment` e `Invoice` hoy no tienen una relacion FK directa entre si en el esquema; `Invoice.paymentId` existe como referencia de negocio, no como constraint Prisma/FK
+
 ### `User`
 
 Tabla principal de identidad.
@@ -398,6 +513,10 @@ Supuestos:
 - API en `http://127.0.0.1:4000`
 - admin sembrado con `seed:admin`
 - variables `ADMIN_EMAIL` y `ADMIN_PASSWORD` validas
+
+Si quieres ver el mismo flujo como secuencia visual, consulta tambien:
+
+- [architecture.md](./architecture.md)
 
 ### 1. Health
 

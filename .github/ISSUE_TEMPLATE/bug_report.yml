@@ -1,0 +1,117 @@
+name: Bug report
+description: Reporta un bug funcional, tecnico u operativo del proyecto
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportar un problema.
+
+        Antes de abrir el issue, intenta revisar:
+
+        - `docs/technical-faq.md`
+        - `docs/local-runbook.md`
+        - `docs/documentation-map.md`
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severidad estimada
+      description: Que tan grave parece el problema
+      options:
+        - baja
+        - media
+        - alta
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: affected_areas
+    attributes:
+      label: Area afectada
+      options:
+        - label: auth
+        - label: sessions
+        - label: customers
+        - label: payments
+        - label: invoices
+        - label: audit
+        - label: health
+        - label: prisma/schema/migrations
+        - label: redis/cache/rate limiting
+        - label: docs
+        - label: ci/cd
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Resumen del bug
+      description: Explica que esta pasando y por que parece incorrecto
+      placeholder: Describe el bug en una o dos frases
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para reproducir
+      description: Deja una secuencia clara y reproducible
+      placeholder: |
+        1. Ejecutar...
+        2. Hacer login...
+        3. Llamar endpoint...
+        4. Observar error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamiento esperado
+      placeholder: Explica que debio pasar
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportamiento actual
+      placeholder: Explica que paso realmente
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidencia
+      description: Logs, salidas de comandos o respuestas HTTP. No pegues secretos.
+      render: shell
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Entorno
+      description: Describe sistema, modo local/nube, Neon, Redis, Docker y cualquier dato util
+      placeholder: |
+        OS:
+        Node:
+        Docker:
+        DATABASE_URL:
+        REDIS_URL:
+        Workflow afectado:
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: validation
+    attributes:
+      label: Validaciones ya corridas
+      options:
+        - label: `npm.cmd run verify`
+        - label: `npm.cmd run lint`
+        - label: `npm.cmd run validate:local`
+        - label: smoke test manual o automatizado
+        - label: revise la FAQ tecnica y el runbook local
+

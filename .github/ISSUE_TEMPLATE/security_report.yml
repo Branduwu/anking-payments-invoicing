@@ -1,0 +1,96 @@
+name: Security report
+description: Reporta un problema de seguridad, auth, sesiones, MFA, secretos o datos sensibles
+title: "[security] "
+labels:
+  - security
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Usa esta plantilla para problemas de seguridad.
+
+        Importante:
+
+        - no pegues secretos reales
+        - no pegues credenciales, cookies, tokens ni URLs sensibles completas
+        - redacta valores privados antes de enviar
+        - si el problema afecta auth, sesiones, MFA, pagos, facturas o auditoria, indicalo claramente
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severidad estimada
+      options:
+        - media
+        - alta
+        - critica
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: category
+    attributes:
+      label: Categoria
+      options:
+        - label: autenticacion
+        - label: sesiones
+        - label: MFA o WebAuthn
+        - label: exposicion de secretos
+        - label: autorizacion o permisos
+        - label: Prisma o migraciones
+        - label: Redis o cache
+        - label: pagos
+        - label: facturacion o PAC
+        - label: auditoria
+        - label: CI/CD o despliegue
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Resumen del problema
+      placeholder: Describe el hallazgo sin exponer secretos ni exploit completo
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impacto
+      description: Explica que podria pasar si no se corrige
+      placeholder: Ej. session hijack, MFA bypass, auditoria incompleta, acceso indebido
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Pasos de reproduccion
+      description: Deja pasos suficientes para investigar, pero sin publicar secretos
+      placeholder: |
+        1. Hacer...
+        2. Llamar...
+        3. Observar...
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected_components
+    attributes:
+      label: Componentes afectados
+      placeholder: auth.service.ts, webauthn.service.ts, Redis session store, workflow CI, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Mitigacion temporal sugerida
+      placeholder: Revocar sesiones, rotar secretos, deshabilitar endpoint, rollback, etc.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidencia redactada
+      description: Pega logs o respuestas redactadas. No publiques secretos ni payloads completos si exponen riesgo.
+      render: shell
+

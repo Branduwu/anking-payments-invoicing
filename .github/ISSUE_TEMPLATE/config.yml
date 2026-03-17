@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Mapa de documentacion
+    url: https://github.com/Branduwu/anking-payments-invoicing/blob/main/docs/documentation-map.md
+    about: Revisa que documento leer segun la tarea antes de abrir un issue.
+  - name: FAQ tecnica
+    url: https://github.com/Branduwu/anking-payments-invoicing/blob/main/docs/technical-faq.md
+    about: Consulta errores comunes de Prisma, Redis, Docker, PowerShell, MFA y CI/CD.

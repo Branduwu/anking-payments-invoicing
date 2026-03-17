@@ -14,6 +14,19 @@ La base actual deja dos workflows en `.github/workflows`:
 - `deploy.yml`: liberacion controlada con migraciones y smoke tests post-deploy
 - `neon-preview.yml`: preview database por pull request usando Neon branching
 
+Tambien existe una plantilla de PR alineada con la checklist de release:
+
+- `.github/PULL_REQUEST_TEMPLATE.md`
+
+La idea es que cada PR deje claro:
+
+- que cambia
+- que modulos toca
+- si es un cambio sensible
+- que validacion se corrio
+- que documentacion se actualizo
+- cual es el riesgo y el plan de rollback
+
 `ci.yml` tambien puede dispararse manualmente con `workflow_dispatch`, lo que sirve para relanzar CI despues de corregir el pipeline o validar el estado de `main` sin crear un commit nuevo.
 
 ## CI

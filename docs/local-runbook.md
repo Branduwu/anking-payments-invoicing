@@ -359,6 +359,10 @@ curl -b cookies.txt \
 
 ## Troubleshooting
 
+Si quieres una lista mas concentrada de errores comunes y respuestas rapidas, consulta tambien:
+
+- [technical-faq.md](./technical-faq.md)
+
 ### `Can't reach database server at localhost:5432`
 
 - PostgreSQL no esta arriba
