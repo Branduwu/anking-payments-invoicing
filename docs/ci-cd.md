@@ -48,6 +48,7 @@ El workflow `ci.yml` corre en tres etapas:
    - corre `scripts/smoke-test.ps1` en modo `full`
 3. `browser_e2e`
    - ejecuta `npm run prisma:generate`
+   - ejecuta `npm run infra:up`
    - instala Chromium de `Playwright`
    - levanta infraestructura local aislada
    - ejecuta `npm run e2e:webauthn`
@@ -59,6 +60,7 @@ El workflow `ci.yml` corre en tres etapas:
 - `smoke` valida el comportamiento contra dependencias reales
 - `browser_e2e` cubre el hueco que `smoke` no puede cubrir: ceremonia WebAuthn real desde navegador
 - `browser_e2e` genera Prisma Client antes de arrancar `ts-node` para que la API del laboratorio no dependa de un cliente stale o ausente
+- `browser_e2e` ahora levanta infraestructura antes de invocar Playwright, porque el `webServer` de Playwright puede intentar arrancar la API antes que `globalSetup`
 - si `quality` falla, no se consumen recursos del job de smoke
 - `smoke` genera Prisma de forma explicita para que el seed y la API no dependan del orden externo del pipeline
 - `quality` y `smoke` corren en runners distintos, asi que `dist/` no sobrevive entre jobs y debe reconstruirse en `smoke`

@@ -357,6 +357,7 @@ npm run e2e:webauthn
 
 `dev:web` levanta el panel minimo de passkeys y `e2e:webauthn` valida la ceremonia completa con `Playwright`.
 El comando `e2e:webauthn` ahora regenera Prisma Client antes de arrancar el laboratorio, para evitar que `ts-node` caiga por tipos stale del cliente en CI o en maquinas limpias.
+Tambien levanta la infraestructura aislada antes de invocar Playwright, porque el `webServer` puede intentar arrancar la API antes que `globalSetup`.
 
 ### Quiero levantar todo el laboratorio de passkeys de una sola vez
 

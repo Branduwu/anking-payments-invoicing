@@ -207,6 +207,12 @@ Corre la prueba browser-based real con `Playwright`:
 7. lista y revoca la credencial
 8. cubre tanto `localhost` como `127.0.0.1` para evitar huecos de loopback/origin
 
+Nota operativa:
+
+- `npm run e2e:webauthn` ahora levanta la infraestructura aislada antes de invocar Playwright
+- `globalSetup` ya no intenta arrancar `PostgreSQL` y `Redis`; solo reseedea el usuario demo
+- esto evita que el `webServer` de Playwright intente levantar la API antes de que exista la base local
+
 Requisito operativo:
 
 - Docker Desktop debe estar arriba para que `PostgreSQL` y `Redis` locales puedan levantarse durante el setup aislado
