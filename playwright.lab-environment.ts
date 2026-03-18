@@ -1,5 +1,7 @@
 const defaultDatabaseUrl = 'postgresql://platform:platform@localhost:5432/platform';
 const defaultRedisUrl = 'redis://localhost:6379';
+const defaultCookieSecret = 'lab-cookie-secret-lab-cookie-secret-1234';
+const defaultMfaEncryptionKey = 'lab-mfa-secret-lab-mfa-secret-lab-1234';
 const resolveLabHost = (): 'localhost' | '127.0.0.1' => {
   const configured = process.env.WEBAUTHN_LAB_HOST?.trim();
   return configured === '127.0.0.1' ? '127.0.0.1' : 'localhost';
@@ -24,10 +26,16 @@ export const webauthnLabAlternateWebBaseUrl = alternateLabWebOrigin;
 
 export const webauthnLabEnvironment = {
   ...process.env,
+  NODE_ENV: process.env.NODE_ENV ?? 'test',
+  API_PREFIX: process.env.API_PREFIX ?? 'api',
   PORT: labApiPort,
+  COOKIE_NAME: process.env.COOKIE_NAME ?? 'session',
+  COOKIE_SECRET: process.env.COOKIE_SECRET ?? defaultCookieSecret,
+  COOKIE_SECURE: process.env.COOKIE_SECURE ?? 'false',
   DATABASE_URL: process.env.WEBAUTHN_LAB_DATABASE_URL ?? defaultDatabaseUrl,
   DIRECT_DATABASE_URL: process.env.WEBAUTHN_LAB_DATABASE_URL ?? defaultDatabaseUrl,
   REDIS_URL: process.env.WEBAUTHN_LAB_REDIS_URL ?? defaultRedisUrl,
+  MFA_ENCRYPTION_KEY: process.env.MFA_ENCRYPTION_KEY ?? defaultMfaEncryptionKey,
   CORS_ORIGIN: allowedLabWebOrigins,
   CSRF_TRUSTED_ORIGINS: allowedLabWebOrigins,
   WEBAUTHN_RP_ID: labHost,

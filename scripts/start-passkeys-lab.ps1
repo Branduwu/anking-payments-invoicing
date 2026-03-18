@@ -48,9 +48,15 @@ if ([string]::IsNullOrWhiteSpace($env:WEBAUTHN_DEMO_PASSWORD)) {
 }
 
 if (-not $UseCurrentEnvironment) {
+  $env:NODE_ENV = 'test'
+  $env:API_PREFIX = 'api'
+  $env:COOKIE_NAME = 'session'
+  $env:COOKIE_SECRET = 'lab-cookie-secret-lab-cookie-secret-1234'
+  $env:COOKIE_SECURE = 'false'
   $env:DATABASE_URL = $labDatabaseUrl
   $env:DIRECT_DATABASE_URL = $labDatabaseUrl
   $env:REDIS_URL = $labRedisUrl
+  $env:MFA_ENCRYPTION_KEY = 'lab-mfa-secret-lab-mfa-secret-lab-1234'
   $env:CORS_ORIGIN = $webUrl
   $env:CSRF_TRUSTED_ORIGINS = $webUrl
   $env:WEBAUTHN_RP_ID = $HostName
