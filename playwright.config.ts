@@ -11,6 +11,7 @@ const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
+  workers: 1,
   globalSetup: './playwright.global-setup.ts',
   timeout: 120_000,
   expect: {
