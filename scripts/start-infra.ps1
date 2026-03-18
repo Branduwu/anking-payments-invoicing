@@ -235,7 +235,8 @@ if ($needsLocalPostgres -or $needsLocalRedis) {
       $composeServices += 'redis'
     }
 
-    Invoke-CheckedCommand -FilePath $dockerCommand.Source -Arguments @('compose', 'up', '-d') + $composeServices -ErrorMessage 'Docker Compose no pudo levantar PostgreSQL y Redis.'
+    $composeArguments = @('compose', 'up', '-d') + $composeServices
+    Invoke-CheckedCommand -FilePath $dockerCommand.Source -Arguments $composeArguments -ErrorMessage 'Docker Compose no pudo levantar PostgreSQL y Redis.'
     $usedDockerCompose = $true
   }
   finally {
@@ -282,6 +283,8 @@ try {
       if ($needsLocalRedis) {
         $serviceNames += 'redis'
       }
+      $serviceNames += @('migration-runner', 'api')
+      $serviceNames = $serviceNames | Select-Object -Unique
       Print-DockerServiceLogs -DockerExecutable $dockerCommand.Source -ServiceNames $serviceNames
     }
 

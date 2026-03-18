@@ -46,6 +46,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://platform:platform@postgres:5432/platform
+      DIRECT_DATABASE_URL: postgresql://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379
       ALLOW_DEGRADED_STARTUP: "false"
     ports:
@@ -75,6 +76,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://platform:platform@postgres:5432/platform
+      DIRECT_DATABASE_URL: postgresql://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379
       ALLOW_DEGRADED_STARTUP: "false"
     command: ["npm", "run", "prisma:migrate:deploy"]
