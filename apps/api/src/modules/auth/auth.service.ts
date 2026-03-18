@@ -48,6 +48,7 @@ interface VerifyMfaResult {
   session: ActiveSession;
   recoveryCodes?: string[];
   remainingRecoveryCodes: number;
+  purpose: 'login' | 'reauth';
 }
 
 interface RecoveryCodesResult {
@@ -415,6 +416,11 @@ export class AuthService {
     payload: MfaVerifyDto,
     metadata: RequestMetadata,
   ): Promise<VerifyMfaResult> {
+    const purpose = this.resolveMfaVerificationPurpose(session, payload.purpose);
+    if (purpose === 'reauth') {
+      await this.assertReauthenticationAllowed(session.userId, metadata);
+    }
+
     const user = await this.prismaService.user.findUnique({
       where: { id: session.userId },
       select: {
@@ -430,6 +436,9 @@ export class AuthService {
     });
 
     if (!user) {
+      await this.registerMfaReauthenticationFailure(purpose, session, metadata, {
+        reason: 'user-not-found',
+      });
       throw new UnauthorizedException('Current user not found');
     }
 
@@ -446,6 +455,10 @@ export class AuthService {
         await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
           reason: 'recovery-code-unavailable',
         });
+        await this.registerMfaReauthenticationFailure(purpose, session, metadata, {
+          reason: 'recovery-code-unavailable',
+          mode: 'recovery_code',
+        });
         throw new BadRequestException('Recovery codes are not configured for this account');
       }
 
@@ -461,6 +474,10 @@ export class AuthService {
       if (!recoveryResult.matched) {
         await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
           reason: 'invalid-recovery-code',
+        });
+        await this.registerMfaReauthenticationFailure(purpose, session, metadata, {
+          reason: 'invalid-recovery-code',
+          mode: 'recovery_code',
         });
         throw this.invalidCredentialsError();
       }
@@ -487,6 +504,7 @@ export class AuthService {
             entityId: session.id,
             metadata: {
               mode: 'recovery_code',
+              purpose,
               remainingRecoveryCodes,
             },
           }),
@@ -506,6 +524,10 @@ export class AuthService {
           await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
             reason: 'invalid-totp-code',
           });
+          await this.registerMfaReauthenticationFailure(purpose, session, metadata, {
+            reason: 'invalid-totp-code',
+            mode: 'totp',
+          });
           throw this.invalidCredentialsError();
         }
 
@@ -519,6 +541,7 @@ export class AuthService {
           entityId: session.id,
           metadata: {
             mode: 'totp',
+            purpose,
             remainingRecoveryCodes,
           },
         });
@@ -526,12 +549,20 @@ export class AuthService {
       await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
         reason: 'totp-not-configured',
       });
+      await this.registerMfaReauthenticationFailure(purpose, session, metadata, {
+        reason: 'totp-not-configured',
+        mode: 'totp',
+      });
       throw new BadRequestException('TOTP is not configured for this account');
     } else {
       const pendingSecret = await this.mfaService.verifyPendingSetup(session.id, payload.code);
       if (!pendingSecret) {
         await this.auditFailure('auth.mfa.verify.failure', metadata, user.id, {
           reason: 'missing-or-invalid-pending-setup',
+        });
+        await this.registerMfaReauthenticationFailure(purpose, session, metadata, {
+          reason: 'missing-or-invalid-pending-setup',
+          mode: 'enrollment',
         });
         throw new BadRequestException('No valid pending MFA setup found for this session');
       }
@@ -562,6 +593,7 @@ export class AuthService {
             entityId: session.id,
             metadata: {
               mode: 'enrollment',
+              purpose,
               remainingRecoveryCodes,
             },
           }),
@@ -571,7 +603,10 @@ export class AuthService {
       await this.mfaService.clearPendingSetup(session.id);
     }
 
-    const sessionWithMfa = await this.sessionsService.completeMfaChallenge(session.id, sessionMfaLevel);
+    const sessionWithMfa =
+      purpose === 'login'
+        ? await this.sessionsService.completeMfaChallenge(session.id, sessionMfaLevel)
+        : await this.sessionsService.updateMfaLevel(session.id, sessionMfaLevel);
     if (!sessionWithMfa) {
       throw new UnauthorizedException('Current session is not valid');
     }
@@ -581,10 +616,22 @@ export class AuthService {
       throw new UnauthorizedException('Current session is not valid');
     }
 
+    await this.completeMfaReauthenticationSuccess(
+      purpose,
+      user.id,
+      session.id,
+      metadata,
+      sessionMfaLevel,
+      {
+        remainingRecoveryCodes,
+      },
+    );
+
     return {
       session: updatedSession,
       recoveryCodes,
       remainingRecoveryCodes,
+      purpose,
     };
   }
 
@@ -1114,7 +1161,10 @@ export class AuthService {
       });
     });
 
-    const sessionWithMfa = await this.sessionsService.completeMfaChallenge(session.id, 'webauthn');
+    const sessionWithMfa =
+      resolvedPurpose === 'login'
+        ? await this.sessionsService.completeMfaChallenge(session.id, 'webauthn')
+        : await this.sessionsService.updateMfaLevel(session.id, 'webauthn');
     if (!sessionWithMfa) {
       throw new UnauthorizedException('Current session is not valid');
     }
@@ -1397,6 +1447,72 @@ export class AuthService {
     }
 
     return resolvedPurpose;
+  }
+
+  private resolveMfaVerificationPurpose(
+    session: ActiveSession,
+    purpose?: 'login' | 'reauth',
+  ): 'login' | 'reauth' {
+    const resolvedPurpose = purpose ?? (session.requiresMfa ? 'login' : 'reauth');
+
+    if (resolvedPurpose === 'login' && !session.requiresMfa) {
+      throw new BadRequestException('Current session does not require MFA login completion');
+    }
+
+    if (resolvedPurpose === 'reauth' && session.requiresMfa) {
+      throw new BadRequestException('Pending MFA sessions must complete login verification first');
+    }
+
+    return resolvedPurpose;
+  }
+
+  private async registerMfaReauthenticationFailure(
+    purpose: 'login' | 'reauth',
+    session: ActiveSession,
+    metadata: RequestMetadata,
+    extraMetadata: Record<string, unknown>,
+  ): Promise<void> {
+    if (purpose !== 'reauth') {
+      return;
+    }
+
+    await this.authRateLimitService.registerReauthenticationFailure(
+      session.userId,
+      metadata.ipAddress,
+    );
+    await this.auditFailure('auth.reauthenticate.failure', metadata, session.userId, {
+      ...extraMetadata,
+      via: 'mfa',
+    });
+  }
+
+  private async completeMfaReauthenticationSuccess(
+    purpose: 'login' | 'reauth',
+    userId: string,
+    sessionId: string,
+    metadata: RequestMetadata,
+    mfaLevel: MfaLevel,
+    extraMetadata?: Record<string, unknown>,
+  ): Promise<void> {
+    if (purpose !== 'reauth') {
+      return;
+    }
+
+    await this.authRateLimitService.clearReauthenticationFailures(userId, metadata.ipAddress);
+    await this.auditService.record({
+      action: 'auth.reauthenticate.success',
+      result: 'SUCCESS',
+      userId,
+      requestId: metadata.requestId,
+      ipAddress: metadata.ipAddress,
+      entityType: 'session',
+      entityId: sessionId,
+      metadata: {
+        via: 'mfa',
+        mfaLevel,
+        ...extraMetadata,
+      },
+    });
   }
 
   private toStoredWebAuthnCredential(

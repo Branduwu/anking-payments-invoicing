@@ -39,7 +39,7 @@ Que hacer:
 3. vuelve a correr:
 
 ```powershell
-npm.cmd run prisma:migrate:deploy
+npm run prisma:migrate:deploy
 ```
 
 Lee tambien:
@@ -83,18 +83,42 @@ Que hacer:
 2. repite:
 
 ```powershell
-npm.cmd run verify
+npm run verify
 ```
 
 3. si cambiaste `schema.prisma`, usa:
 
 ```powershell
-npm.cmd run verify:full
+npm run verify:full
 ```
 
 Nota:
 
 - el script `verify` ya reintenta este caso antes de fallar
+
+### `build:web` o `vite build` falla con `spawn EPERM` en Windows
+
+Problema tipico:
+
+- el frontend minimo falla en `vite build`
+- el stack menciona `esbuild`, `vite:build-html` o `spawn EPERM`
+
+Causa probable:
+
+- una politica local de Windows esta bloqueando el modo servicio que usa `esbuild`
+- no suele ser una regresion del panel ni del flujo WebAuthn
+
+Que hace hoy el repo:
+
+- `verify` deja pasar especificamente ese borde local de Windows para que no bloquee `build:api`, `test` y `lint:web`
+- el flujo browser-based real sigue cubierto por `npm run e2e:webauthn`
+- el merge gate del repo ya corre ese E2E en Linux CI
+
+Que hacer si quieres forzar el build web local:
+
+1. prueba en `WSL` o Linux
+2. revisa politicas locales que impidan el spawn del servicio de `esbuild`
+3. confirma que `npm run lint` y `npm run e2e:webauthn` sigan verdes
 
 ## Neon y PostgreSQL
 
@@ -205,8 +229,8 @@ docker compose version
 3. vuelve a correr:
 
 ```powershell
-npm.cmd run infra:up
-npm.cmd run validate:local
+npm run infra:up
+npm run validate:local
 ```
 
 ### Docker reinicio la PC o no veo contenedores
@@ -224,7 +248,7 @@ docker compose ps
 4. si hace falta, vuelve a levantar:
 
 ```powershell
-npm.cmd run infra:up
+npm run infra:up
 ```
 
 ## PowerShell vs `curl`
@@ -258,7 +282,7 @@ Que hacer:
 1. arranca la API:
 
 ```powershell
-npm.cmd run dev
+npm run dev
 ```
 
 2. valida salud:
@@ -296,6 +320,7 @@ Causa:
 Que hacer:
 
 - completa MFA segun `availableMfaMethods`
+- si ya tienes sesion autenticada y solo necesitas reabrir la ventana critica con TOTP o recovery code, usa `POST /api/auth/reauthenticate/mfa`
 
 ## MFA y WebAuthn
 
@@ -326,8 +351,8 @@ Que hacer:
 Hoy el repo ya incluye una ruta lista para eso:
 
 ```powershell
-npm.cmd run dev:web
-npm.cmd run e2e:webauthn
+npm run dev:web
+npm run e2e:webauthn
 ```
 
 `dev:web` levanta el panel minimo de passkeys y `e2e:webauthn` valida la ceremonia completa con `Playwright`.
@@ -337,16 +362,19 @@ npm.cmd run e2e:webauthn
 Usa:
 
 ```powershell
-npm.cmd run webauthn:demo
+npm run webauthn:demo
 ```
 
 Y si quieres que abra el navegador al final:
 
 ```powershell
-npm.cmd run webauthn:demo:open
+npm run webauthn:demo:open
 ```
 
 Eso prepara infra, usuario demo, API y frontend con logs listos para revisar.
+Ahora lo hace sobre `PostgreSQL` y `Redis` locales por defecto, para no depender accidentalmente de URLs remotas en `.env`.
+Si Docker Desktop no esta arriba, el script ya falla con un mensaje explicito.
+Tambien fija `CORS_ORIGIN`, `CSRF_TRUSTED_ORIGINS`, `WEBAUTHN_RP_ID` y `WEBAUTHN_ORIGINS` locales cuando corre en modo aislado.
 
 ### `No active WebAuthn registration challenge found`
 
@@ -383,7 +411,7 @@ Que hacer:
 6. corre:
 
 ```powershell
-npm.cmd run e2e:webauthn
+npm run e2e:webauthn
 ```
 
 Si ese flujo pasa, la ceremonia browser-based, el CORS y la revocacion WebAuthn ya quedaron bien orquestados.
@@ -393,9 +421,9 @@ Si ese flujo pasa, la ceremonia browser-based, el CORS y la revocacion WebAuthn 
 ### Que corro despues de cambios importantes
 
 ```powershell
-npm.cmd run verify
-npm.cmd run lint
-npm.cmd run validate:local
+npm run verify
+npm run lint
+npm run validate:local
 ```
 
 ### Que documento leo si soy nuevo

@@ -270,10 +270,10 @@ Pendiente:
 
 Despues de cambios importantes, el flujo recomendado y ya documentado es:
 
-1. `npm.cmd run verify`
-2. `npm.cmd run lint`
-3. `npm.cmd run audit:deps`
-4. `npm.cmd run validate:local`
+1. `npm run verify`
+2. `npm run lint`
+3. `npm run audit:deps`
+4. `npm run validate:local`
 5. revisar `docs/code-audit.md`
 6. actualizar `README.md` y docs relacionadas
 

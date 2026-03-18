@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
-
-const DEMO_EMAIL = process.env.WEBAUTHN_DEMO_EMAIL ?? 'webauthn.demo@example.com';
-const DEMO_PASSWORD = process.env.WEBAUTHN_DEMO_PASSWORD ?? 'ChangeMeNow_123456789!';
+import {
+  webauthnLabDemoEmail,
+  webauthnLabDemoPassword,
+  webauthnLabEnvironment,
+} from '../../playwright.lab-environment';
 
 test.describe('WebAuthn browser flow', () => {
   test.beforeEach(async ({ page, context, browserName }) => {
@@ -27,11 +29,11 @@ test.describe('WebAuthn browser flow', () => {
   test('registers, uses and revokes a passkey end-to-end', async ({ page }) => {
     await page.goto('/');
 
-    await page.getByTestId('email-input').fill(DEMO_EMAIL);
-    await page.getByTestId('password-input').fill(DEMO_PASSWORD);
+    await page.getByTestId('email-input').fill(webauthnLabDemoEmail);
+    await page.getByTestId('password-input').fill(webauthnLabDemoPassword);
 
     await page.getByTestId('login-button').click();
-    await expect(page.getByTestId('session-summary')).toContainText(DEMO_EMAIL);
+    await expect(page.getByTestId('session-summary')).toContainText(webauthnLabDemoEmail);
     await expect(page.getByTestId('session-summary')).toContainText('desactivado');
 
     await page.getByTestId('reauth-password-button').click();
@@ -52,7 +54,7 @@ test.describe('WebAuthn browser flow', () => {
     await expect(page.getByTestId('session-summary')).toContainText('webauthn');
 
     await page.getByTestId('complete-login-passkey-button').click();
-    await expect(page.getByTestId('session-summary')).toContainText(DEMO_EMAIL);
+    await expect(page.getByTestId('session-summary')).toContainText(webauthnLabDemoEmail);
     await expect(page.getByTestId('session-summary')).toContainText('activo');
 
     await page.getByTestId('reauth-passkey-button').click();
@@ -75,7 +77,7 @@ function resetDemoUser(): void {
     cwd: repoRoot,
     stdio: 'inherit',
     shell: process.platform === 'win32',
-    env: process.env,
+    env: webauthnLabEnvironment,
   });
 
   if (result.status !== 0) {

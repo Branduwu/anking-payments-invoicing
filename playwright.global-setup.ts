@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
+import { webauthnLabEnvironment } from './playwright.lab-environment';
 
 const runCommand = (command: string, args: string[], cwd: string): void => {
   const result = spawnSync(command, args, {
     cwd,
     stdio: 'inherit',
     shell: process.platform === 'win32',
-    env: process.env,
+    env: webauthnLabEnvironment,
   });
 
   if (result.status !== 0) {

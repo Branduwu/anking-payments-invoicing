@@ -31,7 +31,7 @@ La idea es que cada PR deje claro:
 
 ## CI
 
-El workflow `ci.yml` corre en dos etapas:
+El workflow `ci.yml` corre en tres etapas:
 
 1. `quality`
    - `npm ci`
@@ -46,11 +46,17 @@ El workflow `ci.yml` corre en dos etapas:
    - ejecuta `seed:admin`
    - arranca la API
    - corre `scripts/smoke-test.ps1` en modo `full`
+3. `browser_e2e`
+   - instala Chromium de `Playwright`
+   - levanta infraestructura local aislada
+   - ejecuta `npm run e2e:webauthn`
+   - valida el flujo browser-based de passkeys en `localhost` y `127.0.0.1`
 
 ### Por que esta separado
 
 - `quality` da una puerta rapida para build, Prisma y unit tests
 - `smoke` valida el comportamiento contra dependencias reales
+- `browser_e2e` cubre el hueco que `smoke` no puede cubrir: ceremonia WebAuthn real desde navegador
 - si `quality` falla, no se consumen recursos del job de smoke
 - `smoke` genera Prisma de forma explicita para que el seed y la API no dependan del orden externo del pipeline
 - `quality` y `smoke` corren en runners distintos, asi que `dist/` no sobrevive entre jobs y debe reconstruirse en `smoke`

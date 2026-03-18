@@ -102,9 +102,9 @@ Eso permite usar el frontend minimo tanto desde `localhost` como desde `127.0.0.
 ### Levantar
 
 ```powershell
-npm.cmd install
-npm.cmd run infra:up
-npm.cmd run validate:full
+npm install
+npm run infra:up
+npm run validate:full
 ```
 
 ### Resultado esperado
@@ -166,11 +166,11 @@ Si `REDIS_URL` apunta a un host remoto, `infra:up` ya no intentara levantar Redi
 ### Flujo recomendado
 
 ```powershell
-npm.cmd install
-npm.cmd run prisma:generate
-npm.cmd run prisma:migrate:deploy
-npm.cmd run seed:admin
-npm.cmd run validate:local
+npm install
+npm run prisma:generate
+npm run prisma:migrate:deploy
+npm run seed:admin
+npm run validate:local
 ```
 
 Estado ya comprobado en este repo:
@@ -262,20 +262,20 @@ No es solo cambiar URLs. Debes cambiar postura operativa.
 ### Rapida
 
 ```powershell
-npm.cmd run verify
-npm.cmd run lint
+npm run verify
+npm run lint
 ```
 
 ### Completa
 
 ```powershell
-npm.cmd run validate:full
+npm run validate:full
 ```
 
 ### Infraestructura solamente
 
 ```powershell
-npm.cmd run infra:up
+npm run infra:up
 docker compose ps
 ```
 

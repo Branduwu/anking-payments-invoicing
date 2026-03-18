@@ -2,7 +2,8 @@ param(
   [ValidateSet('localhost', '127.0.0.1')]
   [string]$HostName = 'localhost',
   [switch]$OpenBrowser,
-  [switch]$SkipDemoSeed
+  [switch]$SkipDemoSeed,
+  [switch]$UseCurrentEnvironment
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,10 +20,43 @@ $apiStdOutLogPath = Join-Path $repoRoot '.passkeys-lab-api.stdout.log'
 $apiStdErrLogPath = Join-Path $repoRoot '.passkeys-lab-api.stderr.log'
 $webStdOutLogPath = Join-Path $repoRoot '.passkeys-lab-web.stdout.log'
 $webStdErrLogPath = Join-Path $repoRoot '.passkeys-lab-web.stderr.log'
+$npmCommand = $null
+
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 $apiUrl = "http://${HostName}:4000"
 $apiBaseUrl = "$apiUrl/api"
 $webUrl = "http://${HostName}:3000"
+$webHealthUrl = "$webUrl/healthz.json"
+
+$labDatabaseUrl = $env:WEBAUTHN_LAB_DATABASE_URL
+if ([string]::IsNullOrWhiteSpace($labDatabaseUrl)) {
+  $labDatabaseUrl = 'postgresql://platform:platform@localhost:5432/platform'
+}
+
+$labRedisUrl = $env:WEBAUTHN_LAB_REDIS_URL
+if ([string]::IsNullOrWhiteSpace($labRedisUrl)) {
+  $labRedisUrl = 'redis://localhost:6379'
+}
+
+if ([string]::IsNullOrWhiteSpace($env:WEBAUTHN_DEMO_EMAIL)) {
+  $env:WEBAUTHN_DEMO_EMAIL = 'webauthn.demo@example.com'
+}
+
+if ([string]::IsNullOrWhiteSpace($env:WEBAUTHN_DEMO_PASSWORD)) {
+  $env:WEBAUTHN_DEMO_PASSWORD = 'ChangeMeNow_123456789!'
+}
+
+if (-not $UseCurrentEnvironment) {
+  $env:DATABASE_URL = $labDatabaseUrl
+  $env:DIRECT_DATABASE_URL = $labDatabaseUrl
+  $env:REDIS_URL = $labRedisUrl
+  $env:CORS_ORIGIN = $webUrl
+  $env:CSRF_TRUSTED_ORIGINS = $webUrl
+  $env:WEBAUTHN_RP_ID = $HostName
+  $env:WEBAUTHN_ORIGINS = $webUrl
+  $env:VITE_DEFAULT_API_BASE_URL = $apiBaseUrl
+}
 
 function Invoke-CheckedCommand {
   param(
@@ -83,8 +117,7 @@ function Test-PortReady {
     [int]$Port
   )
 
-  $result = Test-NetConnection $TargetHost -Port $Port -WarningAction SilentlyContinue
-  return [bool]$result.TcpTestSucceeded
+  return Test-TcpPort -HostName $TargetHost -Port $Port
 }
 
 function Wait-HttpReady {
@@ -122,8 +155,8 @@ function Wait-WebReady {
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   while ((Get-Date) -lt $deadline) {
     try {
-      $response = Invoke-WebRequest -UseBasicParsing -Method GET -Uri $Url -TimeoutSec 5
-      if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+      $response = Invoke-RestMethod -Method GET -Uri $Url -TimeoutSec 5
+      if ($response.status -eq 'ok' -and $response.service -eq 'webauthn-control-panel') {
         return
       }
     } catch {
@@ -181,19 +214,20 @@ function Start-BackgroundProcess {
 
 Ensure-EnvFile -TargetPath $rootEnvPath -SourcePath $envTemplatePath
 Sync-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
+$npmCommand = Get-NpmCommand
 
 Push-Location $repoRoot
 try {
   & (Join-Path $PSScriptRoot 'start-infra.ps1')
 
   if (-not $SkipDemoSeed) {
-    Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'seed:webauthn-demo') -ErrorMessage 'No se pudo preparar el usuario demo de WebAuthn.'
+    Invoke-CheckedCommand -FilePath $npmCommand -Arguments @('run', 'seed:webauthn-demo') -ErrorMessage 'No se pudo preparar el usuario demo de WebAuthn.'
   }
 
   $apiWasRunning = Test-PortReady -TargetHost $HostName -Port 4000
   if (-not $apiWasRunning) {
     Start-BackgroundProcess `
-      -FilePath 'npm.cmd' `
+      -FilePath $npmCommand `
       -Arguments @('--workspace', 'apps/api', 'run', 'start:dev') `
       -WorkingDirectory $repoRoot `
       -PidPath $apiPidPath `
@@ -207,22 +241,24 @@ try {
   $webWasRunning = Test-PortReady -TargetHost $HostName -Port 3000
   if (-not $webWasRunning) {
     Start-BackgroundProcess `
-      -FilePath 'npm.cmd' `
-      -Arguments @('--workspace', 'apps/web', 'run', 'dev', '--', '--host', $HostName, '--port', '3000', '--strictPort') `
+      -FilePath $npmCommand `
+      -Arguments @('--workspace', 'apps/web', 'run', 'dev', '--', '--host', '0.0.0.0', '--port', '3000', '--strictPort') `
       -WorkingDirectory $repoRoot `
       -PidPath $webPidPath `
       -StdOutLogPath $webStdOutLogPath `
       -StdErrLogPath $webStdErrLogPath | Out-Null
   }
 
-  Wait-WebReady -Url $webUrl
+  Wait-WebReady -Url $webHealthUrl
 
   Write-Host ''
   Write-Host 'Passkeys lab listo.'
   Write-Host "Frontend: $webUrl"
   Write-Host "API: $apiBaseUrl"
-  Write-Host "Demo email: webauthn.demo@example.com"
-  Write-Host "Demo password: ChangeMeNow_123456789!"
+  Write-Host 'Cuenta demo local resembrada. Usa WEBAUTHN_DEMO_EMAIL y WEBAUTHN_DEMO_PASSWORD si necesitas personalizarla.'
+  if (-not $UseCurrentEnvironment) {
+    Write-Host "Infra aislada: PostgreSQL=$labDatabaseUrl | Redis=$labRedisUrl"
+  }
   Write-Host ''
   Write-Host 'Logs:'
   Write-Host "  API stdout: $apiStdOutLogPath"
@@ -231,7 +267,7 @@ try {
   Write-Host "  Web stderr: $webStdErrLogPath"
   Write-Host ''
   Write-Host 'Para apagar procesos iniciados por este script:'
-  Write-Host '  npm.cmd run webauthn:demo:stop'
+  Write-Host '  npm run webauthn:demo:stop'
 
   if ($OpenBrowser) {
     Start-Process $webUrl | Out-Null

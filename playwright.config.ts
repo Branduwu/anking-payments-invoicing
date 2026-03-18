@@ -1,4 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
+import {
+  webauthnLabAlternateWebBaseUrl,
+  webauthnLabApiBaseUrl,
+  webauthnLabEnvironment,
+  webauthnLabWebBaseUrl,
+} from './playwright.lab-environment';
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
@@ -11,7 +17,7 @@ export default defineConfig({
     timeout: 15_000,
   },
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: webauthnLabWebBaseUrl,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -19,22 +25,32 @@ export default defineConfig({
   webServer: [
     {
       command: `${npmCommand} --workspace apps/api run start:dev`,
-      url: 'http://localhost:4000/api/health/live',
-      reuseExistingServer: !process.env.CI,
+      url: `${webauthnLabApiBaseUrl}/health/live`,
+      reuseExistingServer: false,
       timeout: 120_000,
+      env: webauthnLabEnvironment,
     },
     {
-      command: `${npmCommand} --workspace apps/web run dev -- --host localhost --port 3000`,
-      url: 'http://localhost:3000',
-      reuseExistingServer: !process.env.CI,
+      command: `${npmCommand} --workspace apps/web run dev -- --host 0.0.0.0 --port 3100 --strictPort`,
+      url: `${webauthnLabWebBaseUrl}/healthz.json`,
+      reuseExistingServer: false,
       timeout: 120_000,
+      env: webauthnLabEnvironment,
     },
   ],
   projects: [
     {
-      name: 'chromium',
+      name: 'chromium-localhost',
       use: {
         ...devices['Desktop Chrome'],
+        baseURL: webauthnLabWebBaseUrl,
+      },
+    },
+    {
+      name: 'chromium-loopback',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: webauthnLabAlternateWebBaseUrl,
       },
     },
   ],

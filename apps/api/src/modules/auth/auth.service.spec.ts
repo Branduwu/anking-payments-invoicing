@@ -466,7 +466,7 @@ describe('AuthService', () => {
       codes: ['AAAA-BBBB-CCCC-DDDD', 'EEEE-FFFF-GGGG-HHHH'],
       hashes: ['hash1', 'hash2'],
     });
-    sessionsService.completeMfaChallenge.mockResolvedValue({
+    sessionsService.updateMfaLevel.mockResolvedValue({
       id: 'sess_1',
       userId: 'usr_1',
       mfaLevel: 'totp',
@@ -499,10 +499,11 @@ describe('AuthService', () => {
 
     expect(prismaService.$transaction).toHaveBeenCalled();
     expect(mfaService.clearPendingSetup).toHaveBeenCalledWith('sess_1');
-    expect(sessionsService.completeMfaChallenge).toHaveBeenCalledWith('sess_1', 'totp');
+    expect(sessionsService.updateMfaLevel).toHaveBeenCalledWith('sess_1', 'totp');
     expect(result.recoveryCodes).toEqual(['AAAA-BBBB-CCCC-DDDD', 'EEEE-FFFF-GGGG-HHHH']);
     expect(result.remainingRecoveryCodes).toBe(2);
     expect(result.session.reauthenticatedUntil).toBeInstanceOf(Date);
+    expect(result.purpose).toBe('reauth');
   });
 
   it('accepts a recovery code and downgrades the remaining recovery-code count', async () => {
@@ -517,7 +518,7 @@ describe('AuthService', () => {
       matched: true,
       remainingHashes: ['hash2'],
     });
-    sessionsService.completeMfaChallenge.mockResolvedValue({
+    sessionsService.updateMfaLevel.mockResolvedValue({
       id: 'sess_1',
       userId: 'usr_1',
       mfaLevel: 'recovery',
@@ -557,8 +558,9 @@ describe('AuthService', () => {
         actorId: 'usr_1',
       },
     );
-    expect(sessionsService.completeMfaChallenge).toHaveBeenCalledWith('sess_1', 'recovery');
+    expect(sessionsService.updateMfaLevel).toHaveBeenCalledWith('sess_1', 'recovery');
     expect(result.remainingRecoveryCodes).toBe(1);
+    expect(result.purpose).toBe('reauth');
   });
 
   it('accepts recovery codes when WebAuthn is the only primary MFA factor', async () => {
@@ -617,6 +619,178 @@ describe('AuthService', () => {
     );
     expect(mfaService.verifyPendingSetup).not.toHaveBeenCalled();
     expect(result.remainingRecoveryCodes).toBe(1);
+    expect(result.purpose).toBe('login');
+  });
+
+  it('allows TOTP-only accounts to reauthenticate via mfa verification', async () => {
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+      }),
+    );
+    mfaService.verifyEncryptedSecret.mockResolvedValue(true);
+    sessionsService.updateMfaLevel.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'totp',
+    });
+    sessionsService.markReauthenticated.mockResolvedValue({
+      id: 'sess_1',
+      userId: 'usr_1',
+      mfaLevel: 'totp',
+      reauthenticatedUntil: new Date('2026-03-16T00:05:00.000Z'),
+    });
+
+    const result = await service.verifyMfa(
+      {
+        id: 'sess_1',
+        userId: 'usr_1',
+        status: 'active',
+        mfaLevel: 'totp',
+        requiresMfa: false,
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        code: '123456',
+        method: 'totp',
+        purpose: 'reauth',
+      },
+      {
+        requestId: 'req_1',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(mfaService.verifyEncryptedSecret).toHaveBeenCalledWith(
+      'encrypted-secret',
+      '123456',
+      {
+        scope: 'totp',
+        actorId: 'usr_1',
+      },
+    );
+    expect(authRateLimitService.assertReauthenticationAllowed).toHaveBeenCalledWith(
+      'usr_1',
+      '127.0.0.1',
+    );
+    expect(authRateLimitService.clearReauthenticationFailures).toHaveBeenCalledWith(
+      'usr_1',
+      '127.0.0.1',
+    );
+    expect(sessionsService.updateMfaLevel).toHaveBeenCalledWith('sess_1', 'totp');
+    expect(sessionsService.completeMfaChallenge).not.toHaveBeenCalled();
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.reauthenticate.success',
+        result: 'SUCCESS',
+        userId: 'usr_1',
+        metadata: expect.objectContaining({
+          via: 'mfa',
+          mfaLevel: 'totp',
+        }),
+      }),
+    );
+    expect(result.purpose).toBe('reauth');
+    expect(result.session.reauthenticatedUntil).toBeInstanceOf(Date);
+  });
+
+  it('blocks MFA-based reauthentication attempts once the auth rate limit is exceeded', async () => {
+    authRateLimitService.assertReauthenticationAllowed.mockRejectedValue(
+      new HttpException(
+        'Too many reauthentication attempts. Try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      ),
+    );
+
+    await expect(
+      service.verifyMfa(
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          requiresMfa: false,
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          code: '123456',
+          method: 'totp',
+          purpose: 'reauth',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(HttpException);
+
+    expect(prismaService.user.findUnique).not.toHaveBeenCalled();
+    expect(mfaService.verifyEncryptedSecret).not.toHaveBeenCalled();
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.reauthenticate.rate_limited',
+        result: 'DENIED',
+        userId: 'usr_1',
+      }),
+    );
+  });
+
+  it('registers reauthentication failures when TOTP reauthentication code is invalid', async () => {
+    prismaService.user.findUnique.mockResolvedValue(
+      buildUser({
+        mfaEnabled: true,
+        mfaTotpSecretEnc: 'encrypted-secret',
+      }),
+    );
+    mfaService.verifyEncryptedSecret.mockResolvedValue(false);
+
+    await expect(
+      service.verifyMfa(
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          requiresMfa: false,
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          code: '000000',
+          method: 'totp',
+          purpose: 'reauth',
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(authRateLimitService.registerReauthenticationFailure).toHaveBeenCalledWith(
+      'usr_1',
+      '127.0.0.1',
+    );
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.reauthenticate.failure',
+        result: 'FAILURE',
+        userId: 'usr_1',
+        metadata: expect.objectContaining({
+          reason: 'invalid-totp-code',
+          via: 'mfa',
+        }),
+      }),
+    );
   });
 
   it('regenerates recovery codes for a user with MFA enabled', async () => {

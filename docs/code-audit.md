@@ -416,9 +416,20 @@ Impacto:
 - el flujo full local ahora sincroniza env, espera readiness real y muestra logs utiles al fallar
 - el frontend minimo de WebAuthn ya soporta `localhost` y `127.0.0.1` con autodeteccion de API, health check desde el panel y una pista explicita cuando el `origin` del frontend no coincide con el host de la API
 - la ceremonia WebAuthn ya resuelve `origin` y `rpId` por request para loopback local, en lugar de asumir un unico host fijo para todas las pruebas browser-based
-- el panel de passkeys ya expone un flujo guiado con credenciales demo, siguiente paso sugerido y checklist visual para bajar friccion de prueba manual
-- ya existe `npm run webauthn:demo` para levantar de golpe infraestructura, seed demo, API y frontend sin reconstruir el orden a mano
+- el panel de passkeys ya expone un flujo guiado con siguiente paso sugerido y checklist visual, pero sin revelar credenciales demo en pantalla
+- ya existe `npm run webauthn:demo` para levantar de golpe infraestructura local aislada, seed demo, API y frontend sin reconstruir el orden a mano
 - la UX del panel de passkeys ya deja acciones inhabilitadas cuando todavia no aplican, feedback persistente de exito/error y estados vacios mas claros para reducir errores de operacion manual
+- el launcher del laboratorio ya valida el frontend con un health check dedicado, evitando falsos positivos de “frontend listo”
+- la reautenticacion con password ya no se ofrece en el panel cuando la cuenta tiene MFA activo, alineando UX y politica real del backend
+- el setup de `Playwright` y del laboratorio local ya fuerza `PostgreSQL` y `Redis` locales por defecto, reduciendo dependencia accidental de `.env` remotos
+
+- la reautenticacion critica con TOTP o recovery code ya tiene una via explicita en `POST /api/auth/reauthenticate/mfa`, evitando bloquear cuentas TOTP-only cuando expira la ventana reciente
+- el laboratorio aislado ya fuerza tambien `CORS`, `CSRF` y `WEBAUTHN_ORIGINS` locales, reduciendo fallos sutiles por herencia de `.env`
+- el camino `reauthenticate/mfa` ya vuelve a entrar al rate limiting y a la auditoria durable especifica de reauth por usuario/IP
+- `Playwright` ya cubre `localhost` y `127.0.0.1`, reduciendo el hueco de cobertura sobre loopback y `rpId`
+- `Invoice` ya reclama un lock de procesamiento antes de `stamp` o `cancel`, reduciendo el riesgo de doble efecto externo sobre el PAC bajo concurrencia
+- `Invoice.paymentId` ya no es solo referencia logica; ahora tiene FK opcional hacia `Payment`
+- el flujo browser-based de WebAuthn ya entro tambien al merge gate de CI y del workflow de Neon preview
 
 ## Dependencias
 

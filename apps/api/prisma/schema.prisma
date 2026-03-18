@@ -96,6 +96,7 @@ model Payment {
   updatedAt         DateTime      @updatedAt
   settledAt         DateTime?
   user              User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  invoices          Invoice[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -113,15 +114,20 @@ model Invoice {
   pacReference    String?
   pacProvider     String?
   paymentId       String?
+  processingAction InvoiceProcessingAction?
+  processingStartedAt DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   stampedAt       DateTime?
   cancelledAt     DateTime?
   cancellationRef String?
   user            User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  payment         Payment?      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([paymentId])
+  @@index([processingAction, processingStartedAt])
 }
 
 model AuditEvent {
@@ -169,6 +175,11 @@ enum InvoiceStatus {
   STAMPED
   CANCELLED
   FAILED
+}
+
+enum InvoiceProcessingAction {
+  STAMP
+  CANCEL
 }
 
 enum AuditResult {

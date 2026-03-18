@@ -158,6 +158,7 @@ export class AuthController {
     reauthenticatedUntil?: Date;
     recoveryCodes?: string[];
     remainingRecoveryCodes: number;
+    purpose: 'login' | 'reauth';
   }> {
     const result = await this.authService.verifyMfa(
       session,
@@ -169,6 +170,36 @@ export class AuthController {
       reauthenticatedUntil: result.session.reauthenticatedUntil,
       recoveryCodes: result.recoveryCodes,
       remainingRecoveryCodes: result.remainingRecoveryCodes,
+      purpose: result.purpose,
+    };
+  }
+
+  @Post('reauthenticate/mfa')
+  @UseGuards(SessionAuthGuard)
+  async reauthenticateWithMfa(
+    @CurrentSession() session: ActiveSession,
+    @Body() payload: MfaVerifyDto,
+    @Req() request: FastifyRequest,
+  ): Promise<{
+    reauthenticatedUntil?: Date;
+    recoveryCodes?: string[];
+    remainingRecoveryCodes: number;
+    purpose: 'reauth';
+  }> {
+    const result = await this.authService.verifyMfa(
+      session,
+      {
+        ...payload,
+        purpose: 'reauth',
+      },
+      getRequestMetadata(request),
+    );
+
+    return {
+      reauthenticatedUntil: result.session.reauthenticatedUntil,
+      recoveryCodes: result.recoveryCodes,
+      remainingRecoveryCodes: result.remainingRecoveryCodes,
+      purpose: 'reauth',
     };
   }
 

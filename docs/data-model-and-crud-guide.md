@@ -183,7 +183,8 @@ Notas del diagrama:
 
 - `PasswordCredential` es `1:1` con `User`
 - `UserRoleAssignment`, `WebAuthnCredential`, `Customer`, `Payment`, `Invoice` y `AuditEvent` son `1:N`
-- `Payment` e `Invoice` hoy no tienen una relacion FK directa entre si en el esquema; `Invoice.paymentId` existe como referencia de negocio, no como constraint Prisma/FK
+- `Invoice.paymentId` ya tiene una relacion opcional y FK hacia `Payment`
+- `Invoice` tambien conserva un lock de procesamiento (`processingAction`, `processingStartedAt`) para endurecer `stamp` y `cancel` ante concurrencia
 
 ### `User`
 

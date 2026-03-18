@@ -111,6 +111,7 @@ interface AppState {
   browserOrigin: string;
   email: string;
   password: string;
+  mfaCode: string;
   showPassword: boolean;
   user: MeResponse['user'] | null;
   session: MeResponse['session'] | null;
@@ -124,7 +125,14 @@ interface AppState {
   logs: string[];
 }
 
+const viteEnv = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
+
 function getDefaultApiBaseUrl(): string {
+  const configuredBaseUrl = viteEnv.VITE_DEFAULT_API_BASE_URL?.trim();
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/+$/, '');
+  }
+
   const host = window.location.hostname;
   if (isLoopbackHost(host)) {
     return `http://${host}:4000/api`;
@@ -137,14 +145,12 @@ function isLoopbackHost(value: string): boolean {
   return value === 'localhost' || value === '127.0.0.1';
 }
 
-const DEMO_EMAIL = 'webauthn.demo@example.com';
-const DEMO_PASSWORD = 'ChangeMeNow_123456789!';
-
 const initialState: AppState = {
   apiBaseUrl: getDefaultApiBaseUrl(),
   browserOrigin: window.location.origin,
-  email: DEMO_EMAIL,
-  password: DEMO_PASSWORD,
+  email: '',
+  password: '',
+  mfaCode: '',
   showPassword: false,
   user: null,
   session: null,
@@ -161,9 +167,9 @@ const initialState: AppState = {
   notice: {
     tone: 'info',
     title: 'Laboratorio listo para pruebas',
-    detail: 'Valida la API, entra con la cuenta demo y sigue el flujo guiado para probar passkeys end-to-end.',
+    detail: 'Valida la API, entra con una cuenta local y sigue el flujo guiado para probar passkeys end-to-end.',
   },
-  logs: ['Panel listo. Usa el usuario demo o tus propias credenciales.'],
+  logs: ['Panel listo. Usa una cuenta local preparada por seed o tus propias credenciales.'],
 };
 
 const state: AppState = { ...initialState };
@@ -261,25 +267,30 @@ const render = (): void => {
         <section class="panel">
           <h2>Demo guiado</h2>
           <p class="muted">
-            Este panel ya puede guiar el flujo completo de passkeys sin salir a consola.
+            Este panel ya puede guiar el flujo completo de passkeys sin salir a consola y sin exponer
+            credenciales demo en pantalla.
           </p>
           <dl class="demo-grid">
             <div>
-              <dt>Demo email</dt>
-              <dd>${escapeHtml(DEMO_EMAIL)}</dd>
+              <dt>Cuenta local</dt>
+              <dd>Preparada por seed en el entorno activo</dd>
             </div>
             <div>
-              <dt>Demo password</dt>
-              <dd>${escapeHtml(DEMO_PASSWORD)}</dd>
+              <dt>Credenciales</dt>
+              <dd>Configuralas con WEBAUTHN_DEMO_EMAIL y WEBAUTHN_DEMO_PASSWORD</dd>
             </div>
             <div>
               <dt>Ultimo check API</dt>
               <dd>${escapeHtml(healthCheckedAt)}</dd>
             </div>
           </dl>
+          <p class="section-hint">
+            El formulario ya no precarga ni revela passwords demo. Usa credenciales locales que
+            controles desde el entorno o tus propias cuentas.
+          </p>
           <div class="actions compact">
-            <button class="secondary" data-testid="use-demo-button" id="use-demo-button" ${actionAttr(false)}>
-              Usar demo
+            <button class="secondary" data-testid="clear-form-button" id="clear-form-button" ${actionAttr(false)}>
+              Limpiar formulario
             </button>
             <button class="ghost" data-testid="toggle-password-button" id="toggle-password-button" ${actionAttr(false)}>
               ${state.showPassword ? 'Ocultar password' : 'Mostrar password'}
@@ -368,8 +379,8 @@ const render = (): void => {
         <section class="panel">
           <h2>Reautenticacion</h2>
           <p class="muted">
-            Usa password mientras no tengas MFA activo. Una vez registradas passkeys, la reautenticacion
-            critica debe hacerse con WebAuthn.
+            La reautenticacion con password solo aplica antes de activar MFA. Cuando la cuenta ya tiene
+            factores activos, la reautenticacion critica debe hacerse con MFA registrado.
           </p>
           <p class="section-hint">${escapeHtml(getReauthHint())}</p>
           <div class="actions">
@@ -378,6 +389,33 @@ const render = (): void => {
             </button>
             <button data-testid="reauth-passkey-button" id="reauth-passkey-button" ${actionAttr(!canUsePasskeyReauth())}>
               Reautenticar con passkey
+            </button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Codigo MFA</h2>
+          <p class="muted">
+            Usa TOTP o recovery code tanto para completar login pendiente como para abrir una nueva
+            ventana de reautenticacion cuando la cuenta no usa passkeys.
+          </p>
+          <p class="section-hint">${escapeHtml(getMfaCodeHint())}</p>
+          <label>
+            Codigo TOTP o recovery code
+            <input
+              data-testid="mfa-code-input"
+              id="mfa-code-input"
+              type="text"
+              value="${escapeHtml(state.mfaCode)}"
+              placeholder="123456 o AAAA-BBBB-CCCC-DDDD"
+            />
+          </label>
+          <div class="actions">
+            <button data-testid="verify-totp-button" id="verify-totp-button" ${actionAttr(!canVerifyTotp())}>
+              Verificar TOTP
+            </button>
+            <button class="secondary" data-testid="verify-recovery-button" id="verify-recovery-button" ${actionAttr(!canVerifyRecoveryCode())}>
+              Usar recovery code
             </button>
           </div>
         </section>
@@ -476,6 +514,9 @@ const bindCommonInputs = (): void => {
   bindInput('password-input', (value) => {
     state.password = value;
   });
+  bindInput('mfa-code-input', (value) => {
+    state.mfaCode = value.trim().toUpperCase();
+  });
 };
 
 const bindActions = (): void => {
@@ -483,13 +524,15 @@ const bindActions = (): void => {
   bindClick('preset-localhost-button', useLocalhostPreset);
   bindClick('preset-loopback-button', useLoopbackPreset);
   bindClick('check-api-button', checkApiHealthAction);
-  bindClick('use-demo-button', useDemoCredentials);
+  bindClick('clear-form-button', clearCredentialsForm);
   bindClick('toggle-password-button', togglePasswordVisibility);
   bindClick('clear-log-button', clearActivityLog);
   bindClick('load-me-button', loadSessionState);
   bindClick('logout-button', logout);
   bindClick('reauth-password-button', reauthenticateWithPassword);
   bindClick('reauth-passkey-button', () => authenticateWithPasskey('reauth'));
+  bindClick('verify-totp-button', () => verifyMfaCode('totp'));
+  bindClick('verify-recovery-button', () => verifyMfaCode('recovery_code'));
   bindClick('register-passkey-button', registerPasskey);
   bindClick('complete-login-passkey-button', () => authenticateWithPasskey('login'));
   bindClick('load-credentials-button', loadCredentials);
@@ -533,6 +576,7 @@ const login = async (): Promise<void> => {
       state.user = null;
       state.session = null;
       state.credentials = [];
+      state.mfaCode = '';
       return;
     }
 
@@ -573,16 +617,17 @@ const useLoopbackPreset = async (): Promise<void> => {
   render();
 };
 
-const useDemoCredentials = async (): Promise<void> => {
-  state.email = DEMO_EMAIL;
-  state.password = DEMO_PASSWORD;
+const clearCredentialsForm = async (): Promise<void> => {
+  state.email = '';
+  state.password = '';
+  state.mfaCode = '';
   state.lastError = null;
   state.notice = {
     tone: 'info',
-    title: 'Credenciales demo cargadas',
-    detail: 'Ya puedes validar el flujo completo sin buscar datos manualmente.',
+    title: 'Formulario limpiado',
+    detail: 'Captura de nuevo tus credenciales locales o las del seed activo.',
   };
-  addLog('Credenciales demo cargadas en el formulario');
+  addLog('Formulario de credenciales reiniciado');
   render();
 };
 
@@ -624,6 +669,7 @@ const logout = async (): Promise<void> => {
     state.credentials = [];
     state.pendingLoginMfa = [];
     state.recoveryCodes = [];
+    state.mfaCode = '';
   });
 };
 
@@ -658,6 +704,44 @@ const registerPasskey = async (): Promise<void> => {
     );
     await refreshAuthenticatedState();
     await refreshCredentialsState();
+  });
+};
+
+const verifyMfaCode = async (method: 'totp' | 'recovery_code'): Promise<void> => {
+  const purpose = state.pendingLoginMfa.length > 0 ? 'login' : 'reauth';
+  const successMessage =
+    purpose === 'login'
+      ? 'MFA completado con codigo'
+      : method === 'recovery_code'
+        ? 'Reautenticacion con recovery code completada'
+        : 'Reautenticacion con TOTP completada';
+
+  await runAction(successMessage, async () => {
+    const result = await apiFetch<{
+      reauthenticatedUntil?: string;
+      recoveryCodes?: string[];
+      remainingRecoveryCodes: number;
+      purpose: 'login' | 'reauth';
+    }>(purpose === 'login' ? '/auth/mfa/verify' : '/auth/reauthenticate/mfa', {
+      method: 'POST',
+      body: {
+        code: state.mfaCode,
+        method,
+        purpose,
+      },
+    });
+
+    if (result.recoveryCodes?.length) {
+      state.recoveryCodes = result.recoveryCodes;
+    }
+
+    addLog(
+      result.purpose === 'login'
+        ? `MFA completado con ${method}`
+        : `Reautenticacion MFA completada con ${method}`,
+    );
+    state.mfaCode = '';
+    await refreshAuthenticatedState();
   });
 };
 
@@ -906,10 +990,20 @@ const getNextActionState = (): NextActionState => {
     };
   }
 
+  if (state.pendingLoginMfa.length > 0) {
+    return {
+      title: 'Completar MFA con codigo',
+      description: 'La sesion ya paso password. Completa el MFA pendiente con TOTP o recovery code.',
+      tone: 'warn',
+    };
+  }
+
   if (hasAuthenticatedSession() && !hasPasskeyRegistered() && !hasRecentReauth()) {
     return {
-      title: 'Reautenticar con password',
-      description: 'La primera passkey requiere reautenticacion reciente antes del registro.',
+      title: hasActiveMfaMethods() ? 'Reautenticar con MFA' : 'Reautenticar con password',
+      description: hasActiveMfaMethods()
+        ? 'Abre una nueva ventana reciente con TOTP, recovery code o passkey antes de operar.'
+        : 'La primera passkey requiere reautenticacion reciente antes del registro.',
       tone: 'idle',
     };
   }
@@ -971,7 +1065,9 @@ const getGuidedSteps = (): GuidedStepState[] => {
       label: 'Reautenticacion inicial',
       detail: hasRecentReauth()
         ? 'Ya existe una ventana reciente de reautenticacion.'
-        : 'Haz reauth con password antes de registrar la primera passkey.',
+        : hasActiveMfaMethods()
+          ? 'Si MFA ya esta activo, usa un factor MFA registrado para reautenticar.'
+          : 'Haz reauth con password antes de registrar la primera passkey.',
       status: hasRecentReauth() ? 'done' : loginCompleted ? 'current' : 'todo',
     },
     {
@@ -1010,7 +1106,11 @@ const getReauthHint = (): string => {
     return 'Primero necesitas una sesion autenticada para abrir una ventana de reautenticacion.';
   }
 
-  if (!hasPasskeyRegistered()) {
+  if (hasActiveMfaMethods() && !hasMfaMethod('webauthn')) {
+    return 'La cuenta ya tiene MFA activo. Usa TOTP o recovery code para reautenticacion critica.';
+  }
+
+  if (!hasActiveMfaMethods()) {
     return 'La primera reautenticacion suele hacerse con password para poder registrar la passkey.';
   }
 
@@ -1030,6 +1130,10 @@ const getPasskeysHint = (): string => {
     return 'Tu siguiente accion natural es completar el login MFA con passkey.';
   }
 
+  if (state.pendingLoginMfa.length > 0) {
+    return 'Completa primero el MFA pendiente con TOTP o recovery code antes de trabajar con passkeys.';
+  }
+
   if (!hasRecentReauth()) {
     return 'Registrar y revocar passkeys requiere una reautenticacion reciente.';
   }
@@ -1039,6 +1143,26 @@ const getPasskeysHint = (): string => {
   }
 
   return 'Con este panel ya puedes registrar, usar, listar y revocar passkeys desde navegador real.';
+};
+
+const getMfaCodeHint = (): string => {
+  if (state.pendingLoginMfa.includes('totp')) {
+    return 'Tu login quedo pendiente de TOTP. Captura el codigo actual de tu autenticador para completar la sesion.';
+  }
+
+  if (state.pendingLoginMfa.includes('recovery_code')) {
+    return 'Tu login pendiente puede completarse con un recovery code si no tienes el factor primario disponible.';
+  }
+
+  if (!hasAuthenticatedSession()) {
+    return 'Este bloque se activa cuando el login queda pendiente de MFA o cuando ya tienes una sesion autenticada con MFA activo.';
+  }
+
+  if (hasMfaMethod('totp') || hasMfaMethod('recovery_code')) {
+    return 'Usa TOTP o recovery code para volver a abrir la ventana de reautenticacion cuando la cuenta no use passkeys.';
+  }
+
+  return 'Si tu cuenta usa passkeys, el bloque principal de reauth recomendado es WebAuthn.';
 };
 
 const getRecoveryCodesEmptyState = (): string => {
@@ -1086,8 +1210,13 @@ const hasHealthyApi = (): boolean =>
 
 const hasAuthenticatedSession = (): boolean => Boolean(state.user && state.session);
 
+const hasActiveMfaMethods = (): boolean => (state.user?.mfaMethods.length ?? 0) > 0;
+
+const hasMfaMethod = (method: AvailableMfaMethod): boolean =>
+  Boolean(state.user?.mfaMethods.includes(method));
+
 const hasPasskeyRegistered = (): boolean =>
-  (state.user?.webauthnCredentialsCount ?? 0) > 0 || state.credentials.length > 0;
+  hasMfaMethod('webauthn') || (state.user?.webauthnCredentialsCount ?? 0) > 0 || state.credentials.length > 0;
 
 const hasRecentReauth = (): boolean => {
   if (!state.session?.reauthenticatedUntil) {
@@ -1104,9 +1233,9 @@ const canRefreshSession = (): boolean => hasAuthenticatedSession() || state.pend
 
 const canLogout = (): boolean => hasAuthenticatedSession() || state.pendingLoginMfa.length > 0;
 
-const canUsePasswordReauth = (): boolean => hasAuthenticatedSession();
+const canUsePasswordReauth = (): boolean => hasAuthenticatedSession() && !hasActiveMfaMethods();
 
-const canUsePasskeyReauth = (): boolean => hasAuthenticatedSession() && hasPasskeyRegistered();
+const canUsePasskeyReauth = (): boolean => hasAuthenticatedSession() && hasMfaMethod('webauthn');
 
 const canRegisterPasskey = (): boolean => hasAuthenticatedSession() && hasRecentReauth();
 
@@ -1115,6 +1244,15 @@ const canCompleteLoginWithPasskey = (): boolean => state.pendingLoginMfa.include
 const canLoadCredentials = (): boolean => hasAuthenticatedSession() && hasRecentReauth();
 
 const canRevokeCredentials = (): boolean => hasAuthenticatedSession() && hasRecentReauth();
+
+const canVerifyTotp = (): boolean =>
+  state.mfaCode.length >= 6 &&
+  (state.pendingLoginMfa.includes('totp') || (hasAuthenticatedSession() && hasMfaMethod('totp')));
+
+const canVerifyRecoveryCode = (): boolean =>
+  state.mfaCode.length >= 6 &&
+  (state.pendingLoginMfa.includes('recovery_code') ||
+    (hasAuthenticatedSession() && hasMfaMethod('recovery_code')));
 
 const safeUrl = (value: string): URL | null => {
   try {

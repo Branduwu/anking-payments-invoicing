@@ -8,6 +8,8 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $apiPidPath = Join-Path $repoRoot '.passkeys-lab-api.pid'
 $webPidPath = Join-Path $repoRoot '.passkeys-lab-web.pid'
 
+. (Join-Path $PSScriptRoot 'common.ps1')
+
 function Stop-TrackedProcess {
   param([string]$PidPath)
 
@@ -27,11 +29,7 @@ function Stop-TrackedProcess {
     return
   }
 
-  try {
-    & taskkill.exe /PID $process.Id /T /F | Out-Null
-  } catch {
-    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-  }
+  Stop-ProcessTreePortable -Process $process
 
   Remove-Item $PidPath -ErrorAction SilentlyContinue
 }

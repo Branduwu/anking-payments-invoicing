@@ -6,6 +6,9 @@ $rootEnvPath = Join-Path $repoRoot '.env'
 $apiEnvPath = Join-Path $apiRoot '.env'
 $envTemplatePath = Join-Path $repoRoot '.env.example'
 $envValues = @{}
+$npmCommand = $null
+
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 function Invoke-CheckedCommand {
   param(
@@ -64,8 +67,7 @@ function Sync-EnvFile {
 function Test-PortReady {
   param([int]$Port)
 
-  $result = Test-NetConnection localhost -Port $Port -WarningAction SilentlyContinue
-  return [bool]$result.TcpTestSucceeded
+  return Test-TcpPort -HostName 'localhost' -Port $Port
 }
 
 function Read-EnvValues {
@@ -120,8 +122,7 @@ function Test-ServiceReachable {
     [int]$Port
   )
 
-  $result = Test-NetConnection $HostName -Port $Port -WarningAction SilentlyContinue
-  return [bool]$result.TcpTestSucceeded
+  return Test-TcpPort -HostName $HostName -Port $Port
 }
 
 function Wait-PortReady {
@@ -144,6 +145,7 @@ function Wait-PortReady {
 
 Ensure-EnvFile -TargetPath $rootEnvPath -SourcePath $envTemplatePath
 Sync-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
+$npmCommand = Get-NpmCommand
 
 $envValues = Read-EnvValues -Path $rootEnvPath
 $databaseTarget = Get-ServiceTarget -Url $envValues['DIRECT_DATABASE_URL'] -DefaultPort 5432
@@ -160,7 +162,7 @@ if (-not $postgresReady -or -not $redisReady) {
 
     Push-Location $repoRoot
     try {
-      Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'dev') -ErrorMessage 'La API en modo degradado no pudo iniciar correctamente.'
+      Invoke-CheckedCommand -FilePath $npmCommand -Arguments @('run', 'dev') -ErrorMessage 'La API en modo degradado no pudo iniciar correctamente.'
     }
     finally {
       Pop-Location
@@ -174,7 +176,7 @@ if (-not $postgresReady -or -not $redisReady) {
 
 Push-Location $repoRoot
 try {
-  Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'dev') -ErrorMessage 'La API local no pudo iniciar correctamente.'
+  Invoke-CheckedCommand -FilePath $npmCommand -Arguments @('run', 'dev') -ErrorMessage 'La API local no pudo iniciar correctamente.'
 }
 finally {
   Pop-Location

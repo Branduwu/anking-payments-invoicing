@@ -25,10 +25,10 @@ Regla simple:
 
 Marca cada punto:
 
-- [ ] `npm.cmd run verify` paso
-- [ ] `npm.cmd run lint` paso
-- [ ] `npm.cmd run audit:deps` paso
-- [ ] `npm.cmd run validate:local` paso o existe evidencia reciente equivalente
+- [ ] `npm run verify` paso
+- [ ] `npm run lint` paso
+- [ ] `npm run audit:deps` paso
+- [ ] `npm run validate:local` paso o existe evidencia reciente equivalente
 - [ ] no hay errores nuevos en los logs de arranque
 - [ ] los cambios sensibles tienen pruebas nuevas o ajustadas
 

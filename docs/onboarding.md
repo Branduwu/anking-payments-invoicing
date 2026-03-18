@@ -118,19 +118,19 @@ Copy-Item .env.example .env
 2. instalar dependencias:
 
 ```powershell
-npm.cmd install
+npm install
 ```
 
 3. levantar infraestructura:
 
 ```powershell
-npm.cmd run infra:up
+npm run infra:up
 ```
 
 4. validar:
 
 ```powershell
-npm.cmd run validate:full
+npm run validate:full
 ```
 
 ### Opcion B. Neon + Redis local o remoto
@@ -144,20 +144,20 @@ npm.cmd run validate:full
 2. instalar dependencias:
 
 ```powershell
-npm.cmd install
+npm install
 ```
 
 3. migrar y seedear:
 
 ```powershell
-npm.cmd run prisma:migrate:deploy
-npm.cmd run seed:admin
+npm run prisma:migrate:deploy
+npm run seed:admin
 ```
 
 4. validar:
 
 ```powershell
-npm.cmd run validate:local
+npm run validate:local
 ```
 
 Mas detalle:
@@ -187,9 +187,9 @@ Guia exacta:
 
 Regla del proyecto:
 
-1. `npm.cmd run verify`
-2. `npm.cmd run lint`
-3. `npm.cmd run validate:local`
+1. `npm run verify`
+2. `npm run lint`
+3. `npm run validate:local`
 4. revisar si hay que actualizar documentacion
 
 Si cambias seguridad, auth, sesiones, infraestructura o contratos:

@@ -5,7 +5,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
+import {
+  InvoiceProcessingAction,
+  InvoiceStatus,
+  PaymentStatus,
+  Prisma,
+  UserRole,
+} from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import type { RequestMetadata } from '../../common/http/request-metadata';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -173,52 +179,70 @@ export class InvoicesService {
       throw new ConflictException('Cancelled invoices cannot be stamped');
     }
 
-    await this.validateLinkedPayment(invoice.paymentId, invoice.currency, invoice.userId);
-    const stampResult = await this.pacService.stampInvoice({
-      invoiceId: invoice.id,
-      folio: invoice.folio,
-      customerTaxId: invoice.customerTaxId,
-      currency: invoice.currency,
-      subtotal: invoice.subtotal.toFixed(2),
-      total: invoice.total.toFixed(2),
-      paymentId: invoice.paymentId,
-      requestId: metadata.requestId,
-    });
+    await this.acquireInvoiceProcessingLock(
+      invoice.id,
+      InvoiceProcessingAction.STAMP,
+      InvoiceStatus.DRAFT,
+    );
 
-    const updatedInvoice = await this.prismaService.$transaction(async (tx) => {
-      const stampedInvoice = await tx.invoice.update({
-        where: { id: payload.invoiceId },
-        data: {
-          status: InvoiceStatus.STAMPED,
-          pacReference: stampResult.pacReference,
-          pacProvider: stampResult.provider,
-          stampedAt: stampResult.stampedAt,
-        },
+    let pacCompleted = false;
+
+    try {
+      await this.validateLinkedPayment(invoice.paymentId, invoice.currency, invoice.userId);
+      const stampResult = await this.pacService.stampInvoice({
+        invoiceId: invoice.id,
+        folio: invoice.folio,
+        customerTaxId: invoice.customerTaxId,
+        currency: invoice.currency,
+        subtotal: invoice.subtotal.toFixed(2),
+        total: invoice.total.toFixed(2),
+        paymentId: invoice.paymentId,
+        requestId: metadata.requestId,
       });
+      pacCompleted = true;
 
-      await tx.auditEvent.create({
-        data: this.auditService.buildCreateData({
-          action: 'invoices.stamp.success',
-          result: 'SUCCESS',
-          userId: session.userId,
-          requestId: metadata.requestId,
-          ipAddress: metadata.ipAddress,
-          entityType: 'invoice',
-          entityId: stampedInvoice.id,
-          metadata: {
+      const updatedInvoice = await this.prismaService.$transaction(async (tx) => {
+        const stampedInvoice = await tx.invoice.update({
+          where: { id: payload.invoiceId },
+          data: {
+            status: InvoiceStatus.STAMPED,
             pacReference: stampResult.pacReference,
             pacProvider: stampResult.provider,
+            stampedAt: stampResult.stampedAt,
+            processingAction: null,
+            processingStartedAt: null,
           },
-        }),
+        });
+
+        await tx.auditEvent.create({
+          data: this.auditService.buildCreateData({
+            action: 'invoices.stamp.success',
+            result: 'SUCCESS',
+            userId: session.userId,
+            requestId: metadata.requestId,
+            ipAddress: metadata.ipAddress,
+            entityType: 'invoice',
+            entityId: stampedInvoice.id,
+            metadata: {
+              pacReference: stampResult.pacReference,
+              pacProvider: stampResult.provider,
+            },
+          }),
+        });
+
+        return stampedInvoice;
       });
 
-      return stampedInvoice;
-    });
-
-    return {
-      invoice: this.toInvoiceView(updatedInvoice),
-      message: 'Invoice stamped successfully',
-    };
+      return {
+        invoice: this.toInvoiceView(updatedInvoice),
+        message: 'Invoice stamped successfully',
+      };
+    } catch (error) {
+      if (!pacCompleted) {
+        await this.releaseInvoiceProcessingLock(invoice.id, InvoiceProcessingAction.STAMP);
+      }
+      throw error;
+    }
   }
 
   async cancelInvoice(
@@ -250,58 +274,78 @@ export class InvoicesService {
       throw new ConflictException('Invoice is already cancelled');
     }
 
-    const pacCancellation =
-      invoice.status === InvoiceStatus.STAMPED && invoice.pacReference
-        ? await this.pacService.cancelInvoice({
-            invoiceId: invoice.id,
-            folio: invoice.folio,
-            pacReference: invoice.pacReference,
-            reason: payload.reason,
-            requestId: metadata.requestId,
-          })
-        : null;
+    await this.acquireInvoiceProcessingLock(
+      invoice.id,
+      InvoiceProcessingAction.CANCEL,
+      {
+        in: [InvoiceStatus.DRAFT, InvoiceStatus.STAMPED],
+      },
+    );
 
-    const cancellationRef =
-      pacCancellation?.cancellationRef ?? this.generateCancellationReference();
-    const cancelledAt = pacCancellation?.cancelledAt ?? new Date();
+    let pacCompleted = false;
 
-    const updatedInvoice = await this.prismaService.$transaction(async (tx) => {
-      const cancelledInvoice = await tx.invoice.update({
-        where: { id: payload.invoiceId },
-        data: {
-          status: InvoiceStatus.CANCELLED,
-          cancelledAt,
-          cancellationRef,
-        },
-      });
+    try {
+      const pacCancellation =
+        invoice.status === InvoiceStatus.STAMPED && invoice.pacReference
+          ? await this.pacService.cancelInvoice({
+              invoiceId: invoice.id,
+              folio: invoice.folio,
+              pacReference: invoice.pacReference,
+              reason: payload.reason,
+              requestId: metadata.requestId,
+            })
+          : null;
 
-      await tx.auditEvent.create({
-        data: this.auditService.buildCreateData({
-          action: 'invoices.cancel.success',
-          result: 'SUCCESS',
-          userId: session.userId,
-          requestId: metadata.requestId,
-          ipAddress: metadata.ipAddress,
-          entityType: 'invoice',
-          entityId: payload.invoiceId,
-          metadata: {
-            reason: payload.reason,
+      pacCompleted = pacCancellation !== null;
+      const cancellationRef =
+        pacCancellation?.cancellationRef ?? this.generateCancellationReference();
+      const cancelledAt = pacCancellation?.cancelledAt ?? new Date();
+
+      const updatedInvoice = await this.prismaService.$transaction(async (tx) => {
+        const cancelledInvoice = await tx.invoice.update({
+          where: { id: payload.invoiceId },
+          data: {
+            status: InvoiceStatus.CANCELLED,
+            cancelledAt,
             cancellationRef,
-            pacProvider: pacCancellation?.provider ?? cancelledInvoice.pacProvider,
+            processingAction: null,
+            processingStartedAt: null,
           },
-        }),
+        });
+
+        await tx.auditEvent.create({
+          data: this.auditService.buildCreateData({
+            action: 'invoices.cancel.success',
+            result: 'SUCCESS',
+            userId: session.userId,
+            requestId: metadata.requestId,
+            ipAddress: metadata.ipAddress,
+            entityType: 'invoice',
+            entityId: payload.invoiceId,
+            metadata: {
+              reason: payload.reason,
+              cancellationRef,
+              pacProvider: pacCancellation?.provider ?? cancelledInvoice.pacProvider,
+            },
+          }),
+        });
+
+        return cancelledInvoice;
       });
 
-      return cancelledInvoice;
-    });
-
-    return {
-      invoice: this.toInvoiceView(updatedInvoice),
-      message:
-        invoice.status === InvoiceStatus.STAMPED
-          ? 'Stamped invoice cancelled successfully'
-          : 'Invoice cancelled',
-    };
+      return {
+        invoice: this.toInvoiceView(updatedInvoice),
+        message:
+          invoice.status === InvoiceStatus.STAMPED
+            ? 'Stamped invoice cancelled successfully'
+            : 'Invoice cancelled',
+      };
+    } catch (error) {
+      if (!pacCompleted) {
+        await this.releaseInvoiceProcessingLock(invoice.id, InvoiceProcessingAction.CANCEL);
+      }
+      throw error;
+    }
   }
 
   private async getUserRoles(userId: string): Promise<UserRole[]> {
@@ -366,6 +410,50 @@ export class InvoicesService {
     if (total < subtotal) {
       throw new BadRequestException('Invoice total must be greater than or equal to subtotal');
     }
+  }
+
+  private async acquireInvoiceProcessingLock(
+    invoiceId: string,
+    action: InvoiceProcessingAction,
+    expectedStatus: InvoiceStatus | { in: InvoiceStatus[] },
+  ): Promise<void> {
+    const claim = await this.prismaService.invoice.updateMany({
+      where: {
+        id: invoiceId,
+        processingAction: null,
+        status: expectedStatus,
+      },
+      data: {
+        processingAction: action,
+        processingStartedAt: new Date(),
+      },
+    });
+
+    if (claim.count === 1) {
+      return;
+    }
+
+    throw new ConflictException(
+      action === InvoiceProcessingAction.STAMP
+        ? 'Invoice is already being processed for stamping or no longer eligible'
+        : 'Invoice is already being processed for cancellation or no longer eligible',
+    );
+  }
+
+  private async releaseInvoiceProcessingLock(
+    invoiceId: string,
+    action: InvoiceProcessingAction,
+  ): Promise<void> {
+    await this.prismaService.invoice.updateMany({
+      where: {
+        id: invoiceId,
+        processingAction: action,
+      },
+      data: {
+        processingAction: null,
+        processingStartedAt: null,
+      },
+    });
   }
 
   private async validateLinkedPayment(

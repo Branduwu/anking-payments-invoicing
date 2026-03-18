@@ -134,6 +134,8 @@ La base actual ya deja:
 - throttling y lockout temporal para MFA
 - pagos persistidos con auditoria durable
 - facturas con creacion, timbrado y cancelacion
+- lock de procesamiento en facturas para evitar doble timbrado o doble cancelacion por concurrencia
+- relacion opcional `Invoice -> Payment` reforzada con FK en base de datos
 - PAC configurable y protegido para no usar `mock` por accidente en produccion
 - politica de auditoria fail-closed ampliada para mutaciones sensibles y fallos/denegaciones de seguridad
 - health checks con detalle por dependencia
@@ -144,6 +146,7 @@ La base actual ya deja:
 - request logging estructurado para operacion
 - modo degradado controlado cuando faltan dependencias
 - lint, build, tests, verify y smoke tests
+- E2E browser-based de WebAuthn ejecutable tambien desde CI
 - workflows listos para CI y release controlado
 - runbooks de incidente, revocacion y rotacion de secretos
 
@@ -218,6 +221,8 @@ Si quieres ver el modelo con mas detalle, incluyendo un ER simple y el CRUD de r
 - si el usuario tiene MFA, la sesion queda en estado pendiente hasta completar `POST /api/auth/mfa/verify` o `POST /api/auth/webauthn/authentication/verify`
 - `login` devuelve `availableMfaMethods` para que el frontend sepa si debe mostrar `totp`, `recovery_code` o `webauthn`
 - `login` y `reauthenticate` aplican rate limiting por correo/usuario e IP usando `Redis`
+- cuando la cuenta ya tiene MFA activo, la reautenticacion critica por codigo vive en `POST /api/auth/reauthenticate/mfa`
+- esa reautenticacion MFA por codigo ya entra al mismo envelope de rate limiting y auditoria durable de `reauthenticate`
 - las sesiones viven en `Redis`
 - `refresh` rota la sesion creando primero el reemplazo y solo despues revoca la anterior
 - `GET /api/sessions` lista sesiones activas
@@ -281,7 +286,7 @@ Existe un frontend ligero en `apps/web` pensado para validar de forma visible:
 Para usarlo localmente:
 
 ```powershell
-npm.cmd run dev:web
+npm run dev:web
 ```
 
 El panel soporta tanto:
@@ -295,8 +300,9 @@ Y ahora hace estas ayudas automaticamente:
 - deja botones para fijar rapido `localhost` o `127.0.0.1`
 - permite probar `health/live` y `health/ready` desde el mismo panel
 - muestra una pista visual si el host del frontend y el host de la API quedaron mezclados
-- incluye un bloque de demo guiado con credenciales reutilizables, siguiente paso sugerido y checklist visual del flujo
+- incluye un bloque de demo guiado con siguiente paso sugerido y checklist visual del flujo, sin revelar credenciales demo en pantalla
 - ya muestra feedback persistente de exito o error, acciones deshabilitadas segun contexto y estados vacios mas utiles para recovery codes y credenciales
+- ya bloquea la reautenticacion con password cuando la cuenta ya tiene MFA activo, alineandose con la politica real del backend
 
 Regla practica:
 
@@ -310,28 +316,30 @@ Eso evita el `Failed to fetch` que antes aparecia por mismatch de origin.
 Si quieres levantar infraestructura, demo user, API y frontend de una sola vez:
 
 ```powershell
-npm.cmd run webauthn:demo
+npm run webauthn:demo
 ```
 
 Si ademas quieres abrir el navegador al terminar:
 
 ```powershell
-npm.cmd run webauthn:demo:open
+npm run webauthn:demo:open
 ```
 
 Ese flujo:
 
 - sincroniza `.env` y `apps/api/.env`
-- valida o levanta infraestructura segun `DATABASE_URL`, `DIRECT_DATABASE_URL` y `REDIS_URL`
-- reseedea el usuario `webauthn.demo@example.com`
+- levanta una infraestructura aislada local por defecto para `PostgreSQL` y `Redis`, salvo que se use `-UseCurrentEnvironment`
+- reseedea el usuario demo configurado via `WEBAUTHN_DEMO_EMAIL` y `WEBAUTHN_DEMO_PASSWORD`
 - levanta la API en `:4000` si aun no existe una instancia sana
 - levanta el frontend en `:3000`
-- imprime URLs, credenciales demo y rutas de logs
+- fuerza `CORS`, `CSRF` y `WEBAUTHN_ORIGINS` locales cuando corre en modo aislado
+- acota `WEBAUTHN_ORIGINS` al frontend del laboratorio, no al origen de la API
+- imprime URLs y rutas de logs, sin exponer credenciales demo en consola
 
 Para detener procesos iniciados por ese flujo:
 
 ```powershell
-npm.cmd run webauthn:demo:stop
+npm run webauthn:demo:stop
 ```
 
 ### Pagos
@@ -409,7 +417,7 @@ Ajusta al menos:
 #### Opcion A. PostgreSQL local con Docker
 
 - deja `DATABASE_URL` y `DIRECT_DATABASE_URL` apuntando a `localhost:5432`
-- usa `npm.cmd run infra:up`
+- usa `npm run infra:up`
 
 #### Opcion B. PostgreSQL en Neon
 
@@ -427,7 +435,7 @@ Si vas a usar Neon, Prisma queda configurado asi:
 ### 3. Instalar dependencias
 
 ```powershell
-npm.cmd install
+npm install
 ```
 
 ### 4. Levantar infraestructura
@@ -435,7 +443,7 @@ npm.cmd install
 Con Docker:
 
 ```powershell
-npm.cmd run infra:up
+npm run infra:up
 ```
 
 Sin Docker, levanta manualmente:
@@ -452,15 +460,15 @@ Si estas en Neon:
 ### 5. Migrar y seedear
 
 ```powershell
-npm.cmd run prisma:migrate:deploy
-npm.cmd run prisma:generate
-npm.cmd run seed:admin
+npm run prisma:migrate:deploy
+npm run prisma:generate
+npm run seed:admin
 ```
 
 ### 6. Arrancar la API
 
 ```powershell
-npm.cmd start
+npm start
 ```
 
 Si no existen dependencias y `ALLOW_DEGRADED_STARTUP=true`, la API puede levantar en modo degradado para pruebas de arranque.
@@ -473,7 +481,7 @@ Las rutas protegidas de sesiones, MFA, WebAuthn y rate limiting tambien ya inten
 La validacion fuerte recomendada es:
 
 ```powershell
-npm.cmd run validate:full
+npm run validate:full
 ```
 
 Ese flujo:
@@ -488,26 +496,26 @@ Ese flujo:
 Si quieres una validacion rapida:
 
 ```powershell
-npm.cmd run verify
+npm run verify
 ```
 
 ## Scripts principales
 
 ```powershell
-npm.cmd run verify
-npm.cmd run lint
-npm.cmd run test
-npm.cmd run audit:deps
-npm.cmd run dev:web
-npm.cmd run infra:up
-npm.cmd run infra:down
-npm.cmd run smoke:test
-npm.cmd run seed:webauthn-demo
-npm.cmd run e2e:install
-npm.cmd run e2e:webauthn
-npm.cmd run validate:local
-npm.cmd run validate:full
-npm.cmd run prisma:migrate:controlled
+npm run verify
+npm run lint
+npm run test
+npm run audit:deps
+npm run dev:web
+npm run infra:up
+npm run infra:down
+npm run smoke:test
+npm run seed:webauthn-demo
+npm run e2e:install
+npm run e2e:webauthn
+npm run validate:local
+npm run validate:full
+npm run prisma:migrate:controlled
 ```
 
 Que hace cada uno:
@@ -525,7 +533,7 @@ Que hace cada uno:
 - `seed:webauthn-demo`: resetea el usuario demo de passkeys para pruebas reproducibles
 - `dev:web`: levanta el frontend minimo de navegador para WebAuthn/passkeys
 - `e2e:install`: instala Chromium para Playwright
-- `e2e:webauthn`: corre la prueba browser-based real de passkeys con autenticador virtual
+- `e2e:webauthn`: corre la prueba browser-based real de passkeys sobre infraestructura local aislada con autenticador virtual y cubre `localhost` + `127.0.0.1`
 - `smoke:test` sigue cubriendo API y CLI; la ceremonia browser-based de WebAuthn se valida aparte con `Playwright`
 - `validate:local`: `verify` + `lint` + infraestructura + arranque + smoke tests
 - `validate:full`: alias legible de `validate:local`
@@ -535,19 +543,19 @@ Que hace cada uno:
 
 Cada vez que cambies logica de dominio, seguridad, infraestructura o contratos:
 
-1. `npm.cmd run verify`
-2. `npm.cmd run lint`
-3. `npm.cmd run validate:local`
+1. `npm run verify`
+2. `npm run lint`
+3. `npm run validate:local`
 4. revisar `docs/code-audit.md`
 5. actualizar este `README` y la documentacion afectada
 
 Si el cambio toca `WebAuthn`, frontend browser o CORS de mutaciones:
 
-6. `npm.cmd run e2e:webauthn`
+6. `npm run e2e:webauthn`
 
 Nota operativa:
 
-- si `npm.cmd run verify` falla con `EPERM` sobre `query_engine-windows.dll.node`, normalmente tienes una API o watcher de Node bloqueando Prisma en Windows; detenlo y repite la verificacion
+- si `npm run verify` falla con `EPERM` sobre `query_engine-windows.dll.node`, normalmente tienes una API o watcher de Node bloqueando Prisma en Windows; detenlo y repite la verificacion
 - si usas `COOKIE_NAME=__Host-session`, activa tambien `COOKIE_SECURE=true` y sirve la app por HTTPS; para local sobre HTTP el valor recomendado es `session`
 - `SESSION_TOUCH_INTERVAL_SECONDS` controla cada cuanto se persiste actividad de sesion en Redis; sirve para bajar write amplification sin perder expiracion por inactividad
 - `infra:up`, `start-local` y `validate:local` sincronizan `apps/api/.env` desde el `.env` raiz para evitar drift de configuracion
@@ -643,8 +651,8 @@ Usa esto si quieres desarrollar rapido en tu maquina:
 - `PostgreSQL` local o Docker
 - `Redis` local o Docker
 - `.env` con secretos locales
-- `npm.cmd run infra:up`
-- `npm.cmd run validate:full`
+- `npm run infra:up`
+- `npm run validate:full`
 
 ### Ambiente local con Neon
 
@@ -653,9 +661,9 @@ Usa esto si quieres probar ya con una base mas parecida a nube:
 - `DATABASE_URL` con Neon pooled
 - `DIRECT_DATABASE_URL` con Neon direct
 - `Redis` local o administrado
-- `npm.cmd run prisma:migrate:deploy`
-- `npm.cmd run seed:admin`
-- `npm.cmd run validate:local`
+- `npm run prisma:migrate:deploy`
+- `npm run seed:admin`
+- `npm run validate:local`
 
 Estado validado:
 

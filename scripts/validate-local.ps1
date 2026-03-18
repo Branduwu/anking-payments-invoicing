@@ -11,6 +11,9 @@ $apiRoot = Join-Path $repoRoot 'apps/api'
 $rootEnvPath = Join-Path $repoRoot '.env'
 $apiEnvPath = Join-Path $apiRoot '.env'
 $envTemplatePath = Join-Path $repoRoot '.env.example'
+$npmCommand = $null
+
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 function Invoke-CheckedCommand {
   param(
@@ -69,8 +72,7 @@ function Sync-EnvFile {
 function Test-PortReady {
   param([int]$Port)
 
-  $result = Test-NetConnection localhost -Port $Port -WarningAction SilentlyContinue
-  return [bool]$result.TcpTestSucceeded
+  return Test-TcpPort -HostName 'localhost' -Port $Port
 }
 
 function Wait-ApiReady {
@@ -120,24 +122,17 @@ function Print-ApiLogs {
 function Stop-ApiProcessTree {
   param([System.Diagnostics.Process]$Process)
 
-  if ($null -eq $Process) {
-    return
-  }
-
-  try {
-    & taskkill.exe /PID $Process.Id /T /F | Out-Null
-  } catch {
-    Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
-  }
+  Stop-ProcessTreePortable -Process $Process
 }
 
 Ensure-EnvFile -TargetPath $rootEnvPath -SourcePath $envTemplatePath
 Sync-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
+$npmCommand = Get-NpmCommand
 
 Push-Location $repoRoot
 try {
-  Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'verify') -ErrorMessage 'La verificacion previa fallo.'
-  Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'lint') -ErrorMessage 'Lint fallo antes de la validacion local.'
+  Invoke-CheckedCommand -FilePath $npmCommand -Arguments @('run', 'verify') -ErrorMessage 'La verificacion previa fallo.'
+  Invoke-CheckedCommand -FilePath $npmCommand -Arguments @('run', 'lint') -ErrorMessage 'Lint fallo antes de la validacion local.'
   & (Join-Path $PSScriptRoot 'start-infra.ps1')
 
   $apiWasAlreadyRunning = Test-PortReady -Port 4000
@@ -152,7 +147,7 @@ try {
   if (-not $apiWasAlreadyRunning) {
     Remove-Item $apiStdOutLogPath -ErrorAction SilentlyContinue
     Remove-Item $apiStdErrLogPath -ErrorAction SilentlyContinue
-    $apiProcess = Start-Process -FilePath 'npm.cmd' -ArgumentList '--workspace', 'apps/api', 'run', 'start' -WorkingDirectory $repoRoot -PassThru -RedirectStandardOutput $apiStdOutLogPath -RedirectStandardError $apiStdErrLogPath
+    $apiProcess = Start-Process -FilePath $npmCommand -ArgumentList '--workspace', 'apps/api', 'run', 'start' -WorkingDirectory $repoRoot -PassThru -RedirectStandardOutput $apiStdOutLogPath -RedirectStandardError $apiStdErrLogPath
   }
 
   try {

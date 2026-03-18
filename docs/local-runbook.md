@@ -142,6 +142,9 @@ El panel ahora:
 6. mantiene un feedback visible de exito o error
 7. va sugiriendo el siguiente paso del flujo y deshabilita acciones que aun no toca usar
 8. mejora estados vacios para recovery codes y credenciales
+9. ya no muestra ni precarga credenciales demo en pantalla
+10. bloquea la reautenticacion con password cuando la cuenta ya tiene MFA activo
+11. deja usar TOTP o recovery code para reautenticacion critica cuando la cuenta no usa passkeys
 
 Puedes abrirlo en:
 
@@ -160,37 +163,34 @@ Si mezclas hosts, la ceremonia WebAuthn y las mutaciones browser-based pueden fa
 Levanta de una sola vez el laboratorio local de passkeys:
 
 1. sincroniza `.env` y `apps/api/.env`
-2. valida o levanta infraestructura con `infra:up`
+2. fuerza una infraestructura local aislada para `PostgreSQL` y `Redis` salvo que se use `-UseCurrentEnvironment`
 3. prepara el usuario demo reproducible
 4. levanta la API en `:4000` si no estaba ya arriba
 5. levanta el frontend en `:3000`
-6. imprime URLs, credenciales demo y rutas de logs
-
-Usuario demo:
-
-- `webauthn.demo@example.com`
-- `ChangeMeNow_123456789!`
+6. valida el frontend con un health check dedicado
+7. imprime URLs y rutas de logs sin exponer credenciales demo
 
 Para abrir el navegador al terminar:
 
 ```powershell
-npm.cmd run webauthn:demo:open
+npm run webauthn:demo:open
 ```
 
 Para apagar procesos levantados por ese flujo:
 
 ```powershell
-npm.cmd run webauthn:demo:stop
+npm run webauthn:demo:stop
 ```
 
 Ese comando no intenta matar procesos previos que no haya iniciado el propio laboratorio. Si `:4000` o `:3000` ya estan arriba y sanos, los reutiliza.
+Si quieres personalizar el usuario demo, define `WEBAUTHN_DEMO_EMAIL` y `WEBAUTHN_DEMO_PASSWORD` en el proceso local antes de ejecutar el script.
 
 ### `npm run seed:webauthn-demo`
 
 Resetea un usuario reproducible para pruebas de passkeys:
 
-- `webauthn.demo@example.com`
-- `ChangeMeNow_123456789!`
+- usando `WEBAUTHN_DEMO_EMAIL`
+- usando `WEBAUTHN_DEMO_PASSWORD`
 
 Tambien limpia credenciales WebAuthn previas del usuario para que el flujo de registro y login MFA sea repetible.
 
@@ -198,18 +198,23 @@ Tambien limpia credenciales WebAuthn previas del usuario para que el flujo de re
 
 Corre la prueba browser-based real con `Playwright`:
 
-1. prepara infraestructura
+1. prepara infraestructura local aislada
 2. resetea el usuario demo de WebAuthn
 3. levanta API y frontend
 4. registra passkey con autenticador virtual
 5. completa login MFA con passkey
 6. ejecuta reautenticacion con passkey
 7. lista y revoca la credencial
+8. cubre tanto `localhost` como `127.0.0.1` para evitar huecos de loopback/origin
+
+Requisito operativo:
+
+- Docker Desktop debe estar arriba para que `PostgreSQL` y `Redis` locales puedan levantarse durante el setup aislado
 
 Si vas a correrlo por primera vez en una maquina nueva, antes instala Chromium:
 
 ```powershell
-npm.cmd run e2e:install
+npm run e2e:install
 ```
 
 ### `npm run verify`
@@ -254,17 +259,17 @@ Ejecuta migraciones de forma mas segura:
 ### Flujo rapido
 
 ```powershell
-npm.cmd start
+npm start
 ```
 
 ### Flujo controlado
 
 ```powershell
-npm.cmd run verify
-npm.cmd run lint
-npm.cmd run audit:deps
-npm.cmd run infra:up
-npm.cmd run validate:local
+npm run verify
+npm run lint
+npm run audit:deps
+npm run infra:up
+npm run validate:local
 ```
 
 ## Variables clave
@@ -318,6 +323,7 @@ Las mutaciones con cookie validan `Origin`, `Referer` y `Sec-Fetch-Site` siguien
 - `POST /api/auth/login`
 - `GET /api/auth/me`
 - `POST /api/auth/reauthenticate`
+- `POST /api/auth/reauthenticate/mfa`
 - `POST /api/auth/mfa/setup`
 - `POST /api/auth/mfa/verify`
 - `POST /api/auth/mfa/recovery-codes/regenerate`
@@ -332,6 +338,8 @@ Las mutaciones con cookie validan `Origin`, `Referer` y `Sec-Fetch-Site` siguien
 
 `login` y `reauthenticate` ya aplican rate limiting con contadores en `Redis`. Si el umbral configurado se supera, la API responde `429`.
 `login` tambien devuelve `availableMfaMethods` para que el cliente sepa si debe pedir TOTP, recovery code o WebAuthn.
+Si la cuenta ya tiene MFA activo y necesitas una nueva ventana critica sin passkeys, usa `POST /api/auth/reauthenticate/mfa`.
+Ese camino ya queda auditado como `reauthenticate` y no solo como `mfa.verify`.
 
 ### Sesiones
 
@@ -378,7 +386,7 @@ Invoke-RestMethod -Method Get `
 
 No hay ejemplo util con `PowerShell` o `curl` para registrar o verificar passkeys porque la ceremonia depende de APIs del navegador y del `origin`. Para probar WebAuthn:
 
-1. arranca el frontend minimo con `npm.cmd run dev:web` o usa `npm.cmd run e2e:webauthn`
+1. arranca el frontend minimo con `npm run dev:web` o usa `npm run e2e:webauthn`
 2. abre el panel en `http://localhost:3000` o `http://127.0.0.1:3000`
 3. pulsa `Probar API` y confirma `live=ok` y `ready=ready`
 4. si hace falta, usa `Usar localhost` o `Usar 127.0.0.1` para alinear frontend y API

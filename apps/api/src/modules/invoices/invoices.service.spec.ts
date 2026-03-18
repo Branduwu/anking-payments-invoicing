@@ -28,6 +28,7 @@ describe('InvoicesService', () => {
       create: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      updateMany: jest.fn(),
       update: jest.fn(),
     },
   };
@@ -36,6 +37,7 @@ describe('InvoicesService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prismaService.invoice.updateMany.mockResolvedValue({ count: 1 });
     prismaService.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) =>
       callback({
         invoice: prismaService.invoice,
@@ -346,5 +348,112 @@ describe('InvoicesService', () => {
         },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects stamping an invoice that is already being processed', async () => {
+    prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.OPERATOR }]);
+    prismaService.invoice.findUnique.mockResolvedValue({
+      id: 'inv_1',
+      userId: 'usr_1',
+      folio: 'INV-20260316-AAAAAA',
+      status: InvoiceStatus.DRAFT,
+      customerTaxId: 'XAXX010101000',
+      currency: 'MXN',
+      subtotal: new Prisma.Decimal('100.00'),
+      total: new Prisma.Decimal('116.00'),
+      pacReference: null,
+      pacProvider: null,
+      paymentId: null,
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-16T00:00:00.000Z'),
+      stampedAt: null,
+      cancelledAt: null,
+      cancellationRef: null,
+      processingAction: null,
+      processingStartedAt: null,
+    });
+    prismaService.invoice.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(
+      service.stampInvoice(
+        {
+          invoiceId: 'inv_1',
+        },
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(pacService.stampInvoice).not.toHaveBeenCalled();
+  });
+
+  it('releases the invoice processing lock when stamping fails before PAC success', async () => {
+    prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.OPERATOR }]);
+    prismaService.invoice.findUnique.mockResolvedValue({
+      id: 'inv_1',
+      userId: 'usr_1',
+      folio: 'INV-20260316-AAAAAA',
+      status: InvoiceStatus.DRAFT,
+      customerTaxId: 'XAXX010101000',
+      currency: 'MXN',
+      subtotal: new Prisma.Decimal('100.00'),
+      total: new Prisma.Decimal('116.00'),
+      pacReference: null,
+      pacProvider: null,
+      paymentId: null,
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-16T00:00:00.000Z'),
+      stampedAt: null,
+      cancelledAt: null,
+      cancellationRef: null,
+      processingAction: null,
+      processingStartedAt: null,
+    });
+    pacService.stampInvoice.mockRejectedValue(new ConflictException('PAC unavailable'));
+
+    await expect(
+      service.stampInvoice(
+        {
+          invoiceId: 'inv_1',
+        },
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(prismaService.invoice.updateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: 'inv_1',
+        processingAction: 'STAMP',
+      },
+      data: {
+        processingAction: null,
+        processingStartedAt: null,
+      },
+    });
   });
 });

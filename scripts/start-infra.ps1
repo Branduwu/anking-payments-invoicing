@@ -10,6 +10,9 @@ $rootEnvPath = Join-Path $repoRoot '.env'
 $apiEnvPath = Join-Path $apiRoot '.env'
 $envTemplatePath = Join-Path $repoRoot '.env.example'
 $envValues = @{}
+$npmCommand = $null
+
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 function Invoke-CheckedCommand {
   param(
@@ -68,8 +71,7 @@ function Sync-EnvFile {
 function Test-PortReady {
   param([int]$Port)
 
-  $result = Test-NetConnection localhost -Port $Port -WarningAction SilentlyContinue
-  return [bool]$result.TcpTestSucceeded
+  return Test-TcpPort -HostName 'localhost' -Port $Port
 }
 
 function Read-EnvValues {
@@ -91,6 +93,20 @@ function Read-EnvValues {
   }
 
   return $values
+}
+
+function Get-ConfiguredEnvValue {
+  param(
+    [hashtable]$FileValues,
+    [string]$Name
+  )
+
+  $processValue = [System.Environment]::GetEnvironmentVariable($Name)
+  if (-not [string]::IsNullOrWhiteSpace($processValue)) {
+    return $processValue
+  }
+
+  return $FileValues[$Name]
 }
 
 function Get-ServiceTarget {
@@ -124,8 +140,7 @@ function Test-ServiceReachable {
     [int]$Port
   )
 
-  $result = Test-NetConnection $HostName -Port $Port -WarningAction SilentlyContinue
-  return [bool]$result.TcpTestSucceeded
+  return Test-TcpPort -HostName $HostName -Port $Port
 }
 
 function Wait-PortReady {
@@ -178,12 +193,22 @@ function Print-DockerServiceLogs {
   }
 }
 
+function Assert-DockerDaemonReady {
+  param([string]$DockerExecutable)
+
+  & $DockerExecutable info 1>$null 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Docker esta instalado, pero el daemon no esta disponible. Inicia Docker Desktop antes de levantar la infraestructura aislada.'
+  }
+}
+
 Ensure-EnvFile -TargetPath $rootEnvPath -SourcePath $envTemplatePath
 Sync-EnvFile -TargetPath $apiEnvPath -SourcePath $rootEnvPath
+$npmCommand = Get-NpmCommand
 
 $envValues = Read-EnvValues -Path $rootEnvPath
-$databaseTarget = Get-ServiceTarget -Url $envValues['DIRECT_DATABASE_URL'] -DefaultPort 5432
-$redisTarget = Get-ServiceTarget -Url $envValues['REDIS_URL'] -DefaultPort 6379
+$databaseTarget = Get-ServiceTarget -Url (Get-ConfiguredEnvValue -FileValues $envValues -Name 'DIRECT_DATABASE_URL') -DefaultPort 5432
+$redisTarget = Get-ServiceTarget -Url (Get-ConfiguredEnvValue -FileValues $envValues -Name 'REDIS_URL') -DefaultPort 6379
 
 $postgresReady = Test-ServiceReachable -HostName $databaseTarget.Host -Port $databaseTarget.Port
 $redisReady = Test-ServiceReachable -HostName $redisTarget.Host -Port $redisTarget.Port
@@ -197,6 +222,8 @@ if ($needsLocalPostgres -or $needsLocalRedis) {
   if (-not $dockerCommand) {
     throw 'Docker no esta instalado y PostgreSQL/Redis no estan disponibles localmente.'
   }
+
+  Assert-DockerDaemonReady -DockerExecutable $dockerCommand.Source
 
   Push-Location $repoRoot
   try {
@@ -244,8 +271,8 @@ if ($SkipBootstrap) {
 Push-Location $repoRoot
 try {
   try {
-    Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'prisma:migrate:deploy') -ErrorMessage 'La aplicacion de migraciones Prisma fallo.'
-    Invoke-CheckedCommand -FilePath 'npm.cmd' -Arguments @('run', 'seed:admin') -ErrorMessage 'El bootstrap del usuario administrador fallo.'
+    Invoke-CheckedCommand -FilePath $npmCommand -Arguments @('run', 'prisma:migrate:deploy') -ErrorMessage 'La aplicacion de migraciones Prisma fallo.'
+    Invoke-CheckedCommand -FilePath $npmCommand -Arguments @('run', 'seed:admin') -ErrorMessage 'El bootstrap del usuario administrador fallo.'
   } catch {
     if ($usedDockerCompose -and $dockerCommand) {
       $serviceNames = @()
