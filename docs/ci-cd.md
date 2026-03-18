@@ -47,6 +47,7 @@ El workflow `ci.yml` corre en tres etapas:
    - arranca la API
    - corre `scripts/smoke-test.ps1` en modo `full`
 3. `browser_e2e`
+   - ejecuta `npm run prisma:generate`
    - instala Chromium de `Playwright`
    - levanta infraestructura local aislada
    - ejecuta `npm run e2e:webauthn`
@@ -57,11 +58,13 @@ El workflow `ci.yml` corre en tres etapas:
 - `quality` da una puerta rapida para build, Prisma y unit tests
 - `smoke` valida el comportamiento contra dependencias reales
 - `browser_e2e` cubre el hueco que `smoke` no puede cubrir: ceremonia WebAuthn real desde navegador
+- `browser_e2e` genera Prisma Client antes de arrancar `ts-node` para que la API del laboratorio no dependa de un cliente stale o ausente
 - si `quality` falla, no se consumen recursos del job de smoke
 - `smoke` genera Prisma de forma explicita para que el seed y la API no dependan del orden externo del pipeline
 - `quality` y `smoke` corren en runners distintos, asi que `dist/` no sobrevive entre jobs y debe reconstruirse en `smoke`
 - `smoke` usa `COOKIE_NAME=session` porque el job corre sobre HTTP y un nombre `__Host-*` seria invalido sin `COOKIE_SECURE=true`
 - `smoke` define `DATABASE_URL` y `DIRECT_DATABASE_URL`; aunque en CI local ambas apuntan al mismo `PostgreSQL` efimero, Prisma requiere ambas variables porque el schema usa `directUrl`
+- el cleanup de infraestructura del laboratorio browser-based corre en modo best-effort para no dejar falsos rojos si el arranque fallo antes de crear `.env` o antes de levantar los contenedores
 
 ### Semantica de `seed:admin`
 

@@ -430,6 +430,8 @@ Impacto:
 - `Invoice` ya reclama un lock de procesamiento antes de `stamp` o `cancel`, reduciendo el riesgo de doble efecto externo sobre el PAC bajo concurrencia
 - `Invoice.paymentId` ya no es solo referencia logica; ahora tiene FK opcional hacia `Payment`
 - el flujo browser-based de WebAuthn ya entro tambien al merge gate de CI y del workflow de Neon preview
+- el job `browser_e2e` ya genera Prisma Client de forma explicita antes de arrancar la API del laboratorio
+- el cleanup de infraestructura del laboratorio browser-based ya es best-effort para no fallar en cascada cuando el bootstrap se corta antes de crear `.env` o contenedores
 
 ## Dependencias
 

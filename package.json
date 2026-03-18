@@ -40,8 +40,8 @@
     "prisma:migrate:controlled": "node ./scripts/run-powershell.mjs ./scripts/deploy-migrations.ps1",
     "seed:admin": "npm --workspace apps/api run seed:admin",
     "seed:webauthn-demo": "npm --workspace apps/api run seed:webauthn-demo",
-    "e2e:webauthn": "playwright test -c playwright.config.ts",
-    "e2e:webauthn:headed": "playwright test -c playwright.config.ts --headed",
+    "e2e:webauthn": "npm run prisma:generate && playwright test -c playwright.config.ts",
+    "e2e:webauthn:headed": "npm run prisma:generate && playwright test -c playwright.config.ts --headed",
     "e2e:install": "playwright install chromium"
   },
   "devDependencies": {

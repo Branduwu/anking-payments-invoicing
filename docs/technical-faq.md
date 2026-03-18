@@ -356,6 +356,7 @@ npm run e2e:webauthn
 ```
 
 `dev:web` levanta el panel minimo de passkeys y `e2e:webauthn` valida la ceremonia completa con `Playwright`.
+El comando `e2e:webauthn` ahora regenera Prisma Client antes de arrancar el laboratorio, para evitar que `ts-node` caiga por tipos stale del cliente en CI o en maquinas limpias.
 
 ### Quiero levantar todo el laboratorio de passkeys de una sola vez
 
@@ -375,6 +376,7 @@ Eso prepara infra, usuario demo, API y frontend con logs listos para revisar.
 Ahora lo hace sobre `PostgreSQL` y `Redis` locales por defecto, para no depender accidentalmente de URLs remotas en `.env`.
 Si Docker Desktop no esta arriba, el script ya falla con un mensaje explicito.
 Tambien fija `CORS_ORIGIN`, `CSRF_TRUSTED_ORIGINS`, `WEBAUTHN_RP_ID` y `WEBAUTHN_ORIGINS` locales cuando corre en modo aislado.
+El cleanup del laboratorio en CI ya es best-effort para no convertir un fallo temprano de bootstrap en un error secundario de `infra:down`.
 
 ### `No active WebAuthn registration challenge found`
 

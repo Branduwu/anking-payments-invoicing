@@ -1,6 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 export type AuditResultValue = 'SUCCESS' | 'FAILURE' | 'DENIED';
@@ -59,7 +58,7 @@ export class AuditService {
     }
   }
 
-  buildCreateData(event: AuditEventInput): Prisma.AuditEventUncheckedCreateInput {
+  buildCreateData(event: AuditEventInput) {
     return {
       userId: event.userId,
       requestId: event.requestId,
@@ -72,14 +71,12 @@ export class AuditService {
     };
   }
 
-  private sanitizeMetadata(
-    metadata?: Record<string, unknown>,
-  ): Prisma.InputJsonValue | undefined {
+  private sanitizeMetadata(metadata?: Record<string, unknown>) {
     if (!metadata) {
       return undefined;
     }
 
-    return JSON.parse(JSON.stringify(metadata)) as Prisma.InputJsonValue;
+    return JSON.parse(JSON.stringify(metadata));
   }
 
   private resolveFailClosed(event: AuditEventInput, options?: AuditRecordOptions): boolean {

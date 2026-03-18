@@ -18,6 +18,7 @@ export default async function globalSetup(): Promise<void> {
   const repoRoot = process.cwd();
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
+  runCommand(npmCommand, ['run', 'prisma:generate'], repoRoot);
   runCommand(npmCommand, ['run', 'infra:up'], repoRoot);
   runCommand(npmCommand, ['run', 'seed:webauthn-demo'], repoRoot);
 }
