@@ -35,6 +35,9 @@ describe('HealthService', () => {
     markUnavailable: jest.fn(),
     ping: jest.fn(),
   };
+  const observabilityService = {
+    recordDependencyCheck: jest.fn(),
+  };
 
   let service: HealthService;
 
@@ -44,6 +47,7 @@ describe('HealthService', () => {
       configService as never,
       prismaService as never,
       redisService as never,
+      observabilityService as never,
     );
   });
 
@@ -79,6 +83,7 @@ describe('HealthService', () => {
         }),
       ]),
     );
+    expect(observabilityService.recordDependencyCheck).toHaveBeenCalledTimes(2);
   });
 
   it('returns degraded when dependencies are unavailable', async () => {
@@ -100,6 +105,7 @@ describe('HealthService', () => {
         }),
       ]),
     );
+    expect(observabilityService.recordDependencyCheck).toHaveBeenCalledTimes(2);
   });
 
   it('recovers readiness when dependencies reconnect after a degraded startup', async () => {

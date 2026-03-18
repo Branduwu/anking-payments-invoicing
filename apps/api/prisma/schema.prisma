@@ -91,6 +91,8 @@ model Payment {
   status            PaymentStatus @default(PENDING)
   bankAccountRef    String
   externalReference String?
+  idempotencyKey    String?       @db.VarChar(128)
+  idempotencyFingerprint String?  @db.VarChar(128)
   concept           String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
@@ -98,6 +100,7 @@ model Payment {
   user              User          @relation(fields: [userId], references: [id], onDelete: Restrict)
   invoices          Invoice[]
 
+  @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
   @@index([status, createdAt])
 }
@@ -116,6 +119,9 @@ model Invoice {
   paymentId       String?
   processingAction InvoiceProcessingAction?
   processingStartedAt DateTime?
+  processingOperationId String?   @unique
+  processingConfirmationRequired Boolean @default(false)
+  processingErrorDetail String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   stampedAt       DateTime?
@@ -128,6 +134,7 @@ model Invoice {
   @@index([status, createdAt])
   @@index([paymentId])
   @@index([processingAction, processingStartedAt])
+  @@index([processingConfirmationRequired, processingAction])
 }
 
 model AuditEvent {

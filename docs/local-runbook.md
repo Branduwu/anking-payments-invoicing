@@ -219,6 +219,34 @@ Requisito operativo:
 
 Si vas a correrlo por primera vez en una maquina nueva, antes instala Chromium:
 
+### `npm run observability:up`
+
+Levanta un stack local de observabilidad:
+
+1. `Prometheus` en `http://localhost:9090`
+2. `Alertmanager` en `http://localhost:9093`
+3. scrape contra `http://host.docker.internal:4000/api/metrics` por defecto
+4. reglas locales para disponibilidad, error rate, latencia y dependencias
+
+Variables utiles:
+
+- `PROMETHEUS_METRICS_TARGET`
+- `PROMETHEUS_METRICS_BEARER_TOKEN`
+
+Ejemplo:
+
+```powershell
+$env:PROMETHEUS_METRICS_TARGET='host.docker.internal:4000'
+$env:PROMETHEUS_METRICS_BEARER_TOKEN='tu-token-largo'
+npm run observability:up
+```
+
+Para apagarlo:
+
+```powershell
+npm run observability:down
+```
+
 ```powershell
 npm run e2e:install
 ```

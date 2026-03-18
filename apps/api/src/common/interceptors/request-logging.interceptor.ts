@@ -10,12 +10,16 @@ import { ConfigService } from '@nestjs/config';
 import { Observable, tap } from 'rxjs';
 import type { FastifyReply } from 'fastify';
 import type { AuthenticatedRequest } from '../types/authenticated-request.type';
+import { ObservabilityService } from '../../modules/observability/observability.service';
 
 @Injectable()
 export class RequestLoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(RequestLoggingInterceptor.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly observabilityService: ObservabilityService,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const httpContext = context.switchToHttp();
@@ -56,6 +60,14 @@ export class RequestLoggingInterceptor implements NestInterceptor {
       this.configService.get<number>('app.observability.slowRequestThresholdMs', {
         infer: true,
       }) ?? 1_000;
+
+    this.observabilityService.recordHttpRequest({
+      method: params.request.method,
+      path: params.request.url,
+      statusCode: params.statusCode,
+      durationMs: params.durationMs,
+    });
+
     const payload = JSON.stringify({
       event: 'http_request',
       timestamp: new Date().toISOString(),

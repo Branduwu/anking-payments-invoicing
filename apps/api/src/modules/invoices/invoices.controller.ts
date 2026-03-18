@@ -8,6 +8,7 @@ import { getRequestMetadata } from '../../common/http/request-metadata';
 import type { ActiveSession } from '../sessions/session.types';
 import { CancelInvoiceDto } from './dto/cancel-invoice.dto';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { ReconcileInvoiceProcessingDto } from './dto/reconcile-invoice-processing.dto';
 import { StampInvoiceDto } from './dto/stamp-invoice.dto';
 import type { InvoiceView } from './invoice.types';
 import { InvoicesService } from './invoices.service';
@@ -53,5 +54,19 @@ export class InvoicesController {
     @Req() request: FastifyRequest,
   ): Promise<{ invoice: InvoiceView; message: string }> {
     return this.invoicesService.cancelInvoice(payload, session, getRequestMetadata(request));
+  }
+
+  @Post('reconcile')
+  @RequireRecentReauth()
+  async reconcile(
+    @Body() payload: ReconcileInvoiceProcessingDto,
+    @CurrentSession() session: ActiveSession,
+    @Req() request: FastifyRequest,
+  ): Promise<{ invoice: InvoiceView; message: string }> {
+    return this.invoicesService.reconcileInvoiceProcessing(
+      payload,
+      session,
+      getRequestMetadata(request),
+    );
   }
 }

@@ -16,6 +16,12 @@ Prefijo sugerido: `/api`
 - valida `PostgreSQL` y `Redis`
 - devuelve `503` con detalle por dependencia cuando falta alguna
 
+### `GET /metrics`
+
+- publica por defecto, o protegible con `Authorization: Bearer <METRICS_BEARER_TOKEN>`
+- expone metricas estilo Prometheus
+- incluye requests HTTP, latencia, slow requests, salud y latencia de dependencias
+
 ## Auth
 
 ### `POST /auth/login`
@@ -124,6 +130,12 @@ Prefijo sugerido: `/api`
 - abre una nueva ventana corta de reautenticacion cuando el usuario no tiene MFA activo
 - si el usuario tiene MFA activo, la reautenticacion reforzada debe completarse con TOTP, recovery code o WebAuthn
 
+### `POST /auth/reauthenticate/mfa`
+
+- requiere sesion
+- valida TOTP o recovery code para reautenticacion critica
+- comparte envelope de rate limiting y auditoria de `reauthenticate`
+
 ## Sessions
 
 ### `GET /sessions`
@@ -148,6 +160,7 @@ Prefijo sugerido: `/api`
 - requiere sesion
 - requiere reautenticacion reciente
 - registra auditoria
+- acepta `idempotencyKey` opcional para replay seguro de la misma operacion
 
 ### `GET /payments`
 
@@ -219,3 +232,11 @@ Prefijo sugerido: `/api`
 - requiere reautenticacion reciente
 - registra motivo de cancelacion
 - si la factura estaba timbrada, solicita cancelacion al PAC
+
+### `POST /invoices/reconcile`
+
+- requiere sesion
+- requiere reautenticacion reciente
+- exige rol `ADMIN` o `FINANCE`
+- confirma o libera operaciones PAC ambiguas de `stamp/cancel`
+- evita reintentos ciegos cuando el proveedor pudo haber procesado el efecto externo

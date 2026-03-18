@@ -6,6 +6,9 @@ describe('RequestLoggingInterceptor', () => {
   const configService = {
     get: jest.fn(() => 1_000),
   };
+  const observabilityService = {
+    recordHttpRequest: jest.fn(),
+  };
 
   const request = {
     id: 'req-123',
@@ -29,7 +32,10 @@ describe('RequestLoggingInterceptor', () => {
   it('logs controlled 503 responses as warnings instead of 500 errors', () => {
     const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
-    const interceptor = new RequestLoggingInterceptor(configService as never);
+    const interceptor = new RequestLoggingInterceptor(
+      configService as never,
+      observabilityService as never,
+    );
     const exception = new ServiceUnavailableException('Dependencies are not ready');
     const privateApi = interceptor as unknown as {
       resolveErrorStatusCode(
@@ -57,11 +63,21 @@ describe('RequestLoggingInterceptor', () => {
     expect(statusCode).toBe(503);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"statusCode":503'));
     expect(errorSpy).not.toHaveBeenCalled();
+    expect(observabilityService.recordHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        path: '/api/health/ready',
+        statusCode: 503,
+      }),
+    );
   });
 
   it('logs successful requests as info', () => {
     const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
-    const interceptor = new RequestLoggingInterceptor(configService as never);
+    const interceptor = new RequestLoggingInterceptor(
+      configService as never,
+      observabilityService as never,
+    );
     const privateApi = interceptor as unknown as {
       logRequest(params: {
         request: typeof request;
@@ -78,5 +94,12 @@ describe('RequestLoggingInterceptor', () => {
     });
 
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('"statusCode":200'));
+    expect(observabilityService.recordHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        path: '/api/health/ready',
+        statusCode: 200,
+      }),
+    );
   });
 });

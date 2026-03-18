@@ -24,6 +24,8 @@
     "start:local": "node ./scripts/run-powershell.mjs ./scripts/start-local.ps1",
     "infra:up": "node ./scripts/run-powershell.mjs ./scripts/start-infra.ps1",
     "infra:down": "node ./scripts/run-powershell.mjs ./scripts/stop-infra.ps1",
+    "observability:up": "docker compose -f docker-compose.observability.yml up -d",
+    "observability:down": "docker compose -f docker-compose.observability.yml down",
     "smoke:test": "node ./scripts/run-powershell.mjs ./scripts/smoke-test.ps1",
     "test": "npm run test:api",
     "test:api": "npm --workspace apps/api run test",

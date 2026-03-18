@@ -46,6 +46,28 @@ Uso:
 - alertas
 - diagnostico de degradacion
 
+### `GET /api/metrics`
+
+Expone metricas estilo Prometheus para consumo de un scraper interno.
+
+Incluye:
+
+- `banking_platform_build_info`
+- `banking_platform_process_uptime_seconds`
+- `banking_platform_process_resident_memory_bytes`
+- `banking_platform_http_requests_total`
+- `banking_platform_http_request_duration_ms`
+- `banking_platform_http_slow_requests_total`
+- `banking_platform_dependency_up`
+- `banking_platform_dependency_check_latency_ms`
+- `banking_platform_dependency_checks_total`
+
+Notas operativas:
+
+- el endpoint omite contarse a si mismo para no ensuciar los totales HTTP
+- los paths HTTP se normalizan para bajar cardinalidad en metricas
+- si defines `METRICS_BEARER_TOKEN`, el scraper debe enviar `Authorization: Bearer <token>`
+
 ## Logs actuales
 
 La API ya emite logs estructurados de:
@@ -95,6 +117,7 @@ Regla actual de severidad en logs:
 Minimo deberias tener:
 
 - disponibilidad de `live` y `ready`
+- disponibilidad y scrape freshness de `metrics`
 - latencia p95/p99 por endpoint
 - volumen de login exitoso/fallido
 - volumen de MFA setup, verify y lockout
@@ -105,12 +128,56 @@ Minimo deberias tener:
 
 ## Implementacion sugerida
 
-Cuando el proyecto pase a productivo:
+Con lo que ya existe hoy, el siguiente salto serio es:
 
-1. enviar logs JSON a un agregador central
-2. extraer metricas a Prometheus, Datadog o equivalente
+1. scrapear `GET /api/metrics` desde Prometheus, Grafana Agent, Datadog o equivalente
+2. enviar logs JSON a un agregador central
 3. mapear alertas al pager o canal operativo
-4. correlacionar `requestId` con auditoria y logs de infraestructura
+4. correlacionar `requestId` con auditoria, metricas y logs de infraestructura
+
+## Stack local incluido
+
+El repo ya incluye una base local para empezar sin improvisar:
+
+- `docker-compose.observability.yml`
+- `ops/prometheus/prometheus.yml.tmpl`
+- `ops/prometheus/alerts.yml`
+- `ops/alertmanager/alertmanager.yml`
+
+Levantarlo:
+
+```powershell
+npm run observability:up
+```
+
+Apagarlo:
+
+```powershell
+npm run observability:down
+```
+
+Defaults:
+
+- Prometheus: `http://localhost:9090`
+- Alertmanager: `http://localhost:9093`
+- target de scrape: `host.docker.internal:4000`
+
+Variables opcionales:
+
+- `PROMETHEUS_METRICS_TARGET`
+- `PROMETHEUS_METRICS_BEARER_TOKEN`
+
+Si proteges `GET /api/metrics` con `METRICS_BEARER_TOKEN`, Prometheus puede reutilizar ese mismo valor via `PROMETHEUS_METRICS_BEARER_TOKEN`.
+
+Alertas incluidas:
+
+- API down
+- error rate HTTP alto
+- latencia p95 alta
+- dependencia degradada
+- burst de requests lentas
+
+Esto cierra el gap local de scrape + reglas. Lo que sigue pendiente para productivo es conectar `Alertmanager` a Slack, email, PagerDuty o el receiver que uses realmente.
 
 ## Reglas de operacion
 

@@ -1,5 +1,10 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InvoiceStatus, PaymentStatus, Prisma, UserRole } from '@prisma/client';
+import { PacConfirmationRequiredException } from './pac.service';
 import { InvoicesService } from './invoices.service';
 
 describe('InvoicesService', () => {
@@ -11,6 +16,7 @@ describe('InvoicesService', () => {
   const pacService = {
     stampInvoice: jest.fn(),
     cancelInvoice: jest.fn(),
+    getOperationStatus: jest.fn(),
   };
 
   const prismaService = {
@@ -453,7 +459,215 @@ describe('InvoicesService', () => {
       data: {
         processingAction: null,
         processingStartedAt: null,
+        processingOperationId: null,
+        processingConfirmationRequired: false,
+        processingErrorDetail: null,
       },
     });
+  });
+
+  it('marks stamping as confirmation-required when PAC transport outcome is ambiguous', async () => {
+    prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.OPERATOR }]);
+    prismaService.invoice.findUnique.mockResolvedValue({
+      id: 'inv_1',
+      userId: 'usr_1',
+      folio: 'INV-20260316-AAAAAA',
+      status: InvoiceStatus.DRAFT,
+      customerTaxId: 'XAXX010101000',
+      currency: 'MXN',
+      subtotal: new Prisma.Decimal('100.00'),
+      total: new Prisma.Decimal('116.00'),
+      pacReference: null,
+      pacProvider: null,
+      paymentId: null,
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-16T00:00:00.000Z'),
+      stampedAt: null,
+      cancelledAt: null,
+      cancellationRef: null,
+      processingAction: null,
+      processingStartedAt: null,
+      processingOperationId: null,
+      processingConfirmationRequired: false,
+      processingErrorDetail: null,
+    });
+    pacService.stampInvoice.mockRejectedValue(
+      new PacConfirmationRequiredException('stamp', 'custom-http', 'stamp_001'),
+    );
+
+    await expect(
+      service.stampInvoice(
+        {
+          invoiceId: 'inv_1',
+        },
+        {
+          id: 'sess_1',
+          userId: 'usr_1',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          requestId: 'req_1',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(prismaService.invoice.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          processingConfirmationRequired: true,
+        }),
+      }),
+    );
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'invoices.stamp.confirmation_required',
+        result: 'FAILURE',
+      }),
+    );
+  });
+
+  it('audits denied attempts to stamp an invoice from another user without cross-user access', async () => {
+    prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.OPERATOR }]);
+    prismaService.invoice.findUnique.mockResolvedValue({
+      id: 'inv_2',
+      userId: 'usr_owner',
+      folio: 'INV-20260316-BBBBBB',
+      status: InvoiceStatus.DRAFT,
+      customerTaxId: 'XAXX010101000',
+      currency: 'MXN',
+      subtotal: new Prisma.Decimal('100.00'),
+      total: new Prisma.Decimal('116.00'),
+      pacReference: null,
+      pacProvider: null,
+      paymentId: null,
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-16T00:00:00.000Z'),
+      stampedAt: null,
+      cancelledAt: null,
+      cancellationRef: null,
+      processingAction: null,
+      processingStartedAt: null,
+    });
+
+    await expect(
+      service.stampInvoice(
+        {
+          invoiceId: 'inv_2',
+        },
+        {
+          id: 'sess_1',
+          userId: 'usr_operator',
+          status: 'active',
+          mfaLevel: 'totp',
+          createdAt: new Date('2026-03-16T00:00:00.000Z'),
+          lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+          expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+          absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+        },
+        {
+          requestId: 'req_2',
+          ipAddress: '127.0.0.1',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'invoices.access.denied',
+        result: 'DENIED',
+        entityId: 'inv_2',
+      }),
+    );
+    expect(pacService.stampInvoice).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a pending stamp operation using PAC status', async () => {
+    prismaService.userRoleAssignment.findMany.mockResolvedValue([{ role: UserRole.FINANCE }]);
+    prismaService.invoice.findUnique.mockResolvedValue({
+      id: 'inv_3',
+      userId: 'usr_1',
+      folio: 'INV-20260316-CCCCCC',
+      status: InvoiceStatus.DRAFT,
+      customerTaxId: 'XAXX010101000',
+      currency: 'MXN',
+      subtotal: new Prisma.Decimal('100.00'),
+      total: new Prisma.Decimal('116.00'),
+      pacReference: null,
+      pacProvider: 'custom-http',
+      paymentId: null,
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-16T00:00:00.000Z'),
+      stampedAt: null,
+      cancelledAt: null,
+      cancellationRef: null,
+      processingAction: 'STAMP',
+      processingStartedAt: new Date('2026-03-16T00:01:00.000Z'),
+      processingOperationId: 'stamp_003',
+      processingConfirmationRequired: true,
+      processingErrorDetail: 'PAC stamp outcome requires confirmation before retrying',
+    });
+    pacService.getOperationStatus.mockResolvedValue({
+      status: 'SUCCEEDED',
+      provider: 'custom-http',
+      pacReference: 'PAC-REF-003',
+      stampedAt: new Date('2026-03-16T00:02:00.000Z'),
+    });
+    prismaService.invoice.update.mockResolvedValue({
+      id: 'inv_3',
+      userId: 'usr_1',
+      folio: 'INV-20260316-CCCCCC',
+      status: InvoiceStatus.STAMPED,
+      customerTaxId: 'XAXX010101000',
+      currency: 'MXN',
+      subtotal: new Prisma.Decimal('100.00'),
+      total: new Prisma.Decimal('116.00'),
+      pacReference: 'PAC-REF-003',
+      pacProvider: 'custom-http',
+      paymentId: null,
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-16T00:02:00.000Z'),
+      stampedAt: new Date('2026-03-16T00:02:00.000Z'),
+      cancelledAt: null,
+      cancellationRef: null,
+      processingAction: null,
+      processingStartedAt: null,
+      processingOperationId: null,
+      processingConfirmationRequired: false,
+      processingErrorDetail: null,
+    });
+
+    const result = await service.reconcileInvoiceProcessing(
+      {
+        invoiceId: 'inv_3',
+      },
+      {
+        id: 'sess_1',
+        userId: 'usr_finance',
+        status: 'active',
+        mfaLevel: 'totp',
+        createdAt: new Date('2026-03-16T00:00:00.000Z'),
+        lastActivity: new Date('2026-03-16T00:00:00.000Z'),
+        expiresAt: new Date('2026-03-16T00:15:00.000Z'),
+        absoluteExpiresAt: new Date('2026-03-16T08:00:00.000Z'),
+      },
+      {
+        requestId: 'req_3',
+        ipAddress: '127.0.0.1',
+      },
+    );
+
+    expect(result.invoice.status).toBe(InvoiceStatus.STAMPED);
+    expect(result.message).toContain('reconciliation');
+    expect(auditService.buildCreateData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'invoices.stamp.reconcile.success',
+      }),
+    );
   });
 });

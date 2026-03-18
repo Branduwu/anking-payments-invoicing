@@ -12,6 +12,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { HealthModule } from './modules/health/health.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { ObservabilityModule } from './modules/observability/observability.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SessionsModule } from './modules/sessions/sessions.module';
 
@@ -31,6 +32,7 @@ import { SessionsModule } from './modules/sessions/sessions.module';
     PrismaModule,
     RedisModule,
     AuditModule,
+    ObservabilityModule,
     SessionsModule,
     HealthModule,
     AuthModule,

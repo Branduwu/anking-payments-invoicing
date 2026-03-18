@@ -1,0 +1,41 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    container_name: platform-prometheus
+    restart: unless-stopped
+    environment:
+      PROMETHEUS_METRICS_TARGET: ${PROMETHEUS_METRICS_TARGET:-host.docker.internal:4000}
+      PROMETHEUS_METRICS_BEARER_TOKEN: ${PROMETHEUS_METRICS_BEARER_TOKEN:-}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /etc/prometheus/generated && \
+        export PROMETHEUS_METRICS_TARGET PROMETHEUS_METRICS_BEARER_TOKEN && \
+        envsubst < /etc/prometheus/templates/prometheus.yml.tmpl > /etc/prometheus/generated/prometheus.yml && \
+        /bin/prometheus \
+          --config.file=/etc/prometheus/generated/prometheus.yml \
+          --storage.tsdb.path=/prometheus \
+          --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/prometheus/prometheus.yml.tmpl:/etc/prometheus/templates/prometheus.yml.tmpl:ro
+      - ./ops/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: platform-alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./ops/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+volumes:
+  prometheus_data:

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RedisService } from '../../infrastructure/redis/redis.service';
+import { ObservabilityService } from '../observability/observability.service';
 
 type DependencyStatus = 'up' | 'down';
 
@@ -32,6 +33,7 @@ export class HealthService {
     private readonly configService: ConfigService,
     private readonly prismaService: PrismaService,
     private readonly redisService: RedisService,
+    private readonly observabilityService: ObservabilityService,
   ) {}
 
   getLiveness(): HealthPayload {
@@ -44,6 +46,7 @@ export class HealthService {
 
   async getReadiness(): Promise<HealthPayload> {
     const checks = await Promise.all([this.checkDatabase(), this.checkRedis()]);
+    checks.forEach((check) => this.observabilityService.recordDependencyCheck(check));
     const hasUnavailableDependency = checks.some((check) => check.status === 'down');
 
     return {

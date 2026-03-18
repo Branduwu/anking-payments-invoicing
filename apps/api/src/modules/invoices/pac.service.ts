@@ -7,8 +7,19 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 
+export class PacConfirmationRequiredException extends ServiceUnavailableException {
+  constructor(
+    public readonly action: 'stamp' | 'cancel',
+    public readonly provider: string,
+    public readonly operationId: string,
+  ) {
+    super(`PAC ${action} outcome requires confirmation before retrying`);
+  }
+}
+
 export interface PacStampRequest {
   invoiceId: string;
+  operationId: string;
   folio: string;
   customerTaxId: string;
   currency: string;
@@ -20,6 +31,7 @@ export interface PacStampRequest {
 
 export interface PacCancelRequest {
   invoiceId: string;
+  operationId: string;
   folio: string;
   pacReference: string;
   reason: string;
@@ -36,6 +48,16 @@ export interface PacCancelResult {
   cancellationRef: string;
   provider: string;
   cancelledAt: Date;
+}
+
+export interface PacOperationStatusResult {
+  status: 'PENDING' | 'SUCCEEDED' | 'FAILED';
+  provider: string;
+  pacReference?: string;
+  cancellationRef?: string;
+  stampedAt?: Date;
+  cancelledAt?: Date;
+  detail?: string;
 }
 
 @Injectable()
@@ -56,7 +78,7 @@ export class PacService {
       };
     }
 
-    const response = await this.callProvider('/stamp', payload);
+    const response = await this.callProvider('/stamp', payload, provider);
     const pacReference = this.asNonEmptyString(response.pacReference, 'PAC stamp response');
 
     return {
@@ -78,7 +100,7 @@ export class PacService {
       };
     }
 
-    const response = await this.callProvider('/cancel', payload);
+    const response = await this.callProvider('/cancel', payload, provider);
     const cancellationRef = this.asNonEmptyString(
       response.cancellationRef,
       'PAC cancel response',
@@ -91,9 +113,93 @@ export class PacService {
     };
   }
 
+  async getOperationStatus(operationId: string): Promise<PacOperationStatusResult> {
+    const provider = this.getProvider();
+
+    if (provider === 'mock') {
+      this.assertMockAllowed();
+      return {
+        status: 'PENDING',
+        provider,
+        detail: 'mock provider does not persist operation status',
+      };
+    }
+
+    const baseUrl =
+      this.configService.get<string>('app.integrations.pac.baseUrl', { infer: true }) ?? '';
+    const apiKey =
+      this.configService.get<string>('app.integrations.pac.apiKey', { infer: true }) ?? '';
+    const timeoutMs =
+      this.configService.get<number>('app.integrations.pac.timeoutMs', { infer: true }) ?? 10_000;
+
+    if (!baseUrl) {
+      throw new ServiceUnavailableException('PAC provider is not configured');
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(
+        `${baseUrl}/operations/${encodeURIComponent(operationId)}`,
+        {
+          method: 'GET',
+          headers: {
+            ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+          },
+          signal: controller.signal,
+        },
+      );
+
+      if (response.status === 404) {
+        return {
+          status: 'PENDING',
+          provider,
+          detail: 'operation-not-found',
+        };
+      }
+
+      if (!response.ok) {
+        throw new BadGatewayException(
+          `PAC provider status responded with status ${response.status}`,
+        );
+      }
+
+      const payload = (await response.json()) as Record<string, unknown>;
+      const status = this.normalizeOperationStatus(payload.status);
+
+      return {
+        status,
+        provider,
+        pacReference: this.asOptionalString(payload.pacReference) ?? undefined,
+        cancellationRef: this.asOptionalString(payload.cancellationRef) ?? undefined,
+        stampedAt: this.asOptionalDate(payload.stampedAt) ?? undefined,
+        cancelledAt: this.asOptionalDate(payload.cancelledAt) ?? undefined,
+        detail: this.asOptionalString(payload.detail) ?? undefined,
+      };
+    } catch (error) {
+      if (error instanceof BadGatewayException || error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new ServiceUnavailableException('PAC provider status timed out');
+      }
+
+      this.logger.error(
+        `PAC status request failed for operation ${operationId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new ServiceUnavailableException('PAC provider status request failed');
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private async callProvider(
     path: '/stamp' | '/cancel',
     payload: PacStampRequest | PacCancelRequest,
+    provider: string,
   ): Promise<Record<string, unknown>> {
     const baseUrl =
       this.configService.get<string>('app.integrations.pac.baseUrl', { infer: true }) ?? '';
@@ -114,6 +220,7 @@ export class PacService {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
+          'x-idempotency-key': payload.operationId,
           ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
         },
         body: JSON.stringify(payload),
@@ -131,14 +238,22 @@ export class PacService {
       }
 
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new ServiceUnavailableException('PAC provider timed out');
+        throw new PacConfirmationRequiredException(
+          path === '/stamp' ? 'stamp' : 'cancel',
+          provider,
+          payload.operationId,
+        );
       }
 
       this.logger.error(
         `PAC request failed on ${path}`,
         error instanceof Error ? error.stack : undefined,
       );
-      throw new BadGatewayException('PAC provider request failed');
+      throw new PacConfirmationRequiredException(
+        path === '/stamp' ? 'stamp' : 'cancel',
+        provider,
+        payload.operationId,
+      );
     } finally {
       clearTimeout(timeout);
     }
@@ -179,5 +294,31 @@ export class PacService {
 
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private asOptionalString(value: unknown): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private normalizeOperationStatus(value: unknown): PacOperationStatusResult['status'] {
+    if (typeof value !== 'string') {
+      return 'PENDING';
+    }
+
+    const normalized = value.trim().toUpperCase();
+    if (['SUCCEEDED', 'SUCCESS', 'STAMPED', 'CANCELLED', 'CONFIRMED'].includes(normalized)) {
+      return 'SUCCEEDED';
+    }
+
+    if (['FAILED', 'FAILURE', 'ERROR', 'REJECTED'].includes(normalized)) {
+      return 'FAILED';
+    }
+
+    return 'PENDING';
   }
 }

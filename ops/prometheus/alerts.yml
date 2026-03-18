@@ -1,0 +1,63 @@
+groups:
+  - name: banking-platform-api
+    rules:
+      - alert: BankingPlatformApiDown
+        expr: up{job="banking-platform-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: banking-platform-api
+        annotations:
+          summary: API sin scrape en Prometheus
+          description: La API no responde al scrape de metricas durante al menos 2 minutos.
+
+      - alert: BankingPlatformApiHighErrorRate
+        expr: |
+          (
+            sum(rate(banking_platform_http_requests_total{job="banking-platform-api",status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(banking_platform_http_requests_total{job="banking-platform-api"}[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: banking-platform-api
+        annotations:
+          summary: Error rate HTTP elevado
+          description: Mas del 5% de las respuestas HTTP del API son 5xx en los ultimos 5 minutos.
+
+      - alert: BankingPlatformApiHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(banking_platform_http_request_duration_ms_bucket{job="banking-platform-api"}[5m])
+            )
+          ) > 750
+        for: 10m
+        labels:
+          severity: warning
+          service: banking-platform-api
+        annotations:
+          summary: Latencia p95 alta
+          description: La latencia p95 del API supera 750 ms durante 10 minutos.
+
+      - alert: BankingPlatformDependencyDown
+        expr: banking_platform_dependency_up{job="banking-platform-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: banking-platform-api
+        annotations:
+          summary: Dependencia critica degradada
+          description: Una dependencia del API aparece como no disponible en metricas durante al menos 2 minutos.
+
+      - alert: BankingPlatformSlowRequestsBurst
+        expr: increase(banking_platform_http_slow_requests_total{job="banking-platform-api"}[10m]) > 20
+        for: 0m
+        labels:
+          severity: warning
+          service: banking-platform-api
+        annotations:
+          summary: Pico de requests lentas
+          description: Se detectaron mas de 20 requests lentas en una ventana de 10 minutos.

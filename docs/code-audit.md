@@ -432,6 +432,10 @@ Impacto:
 - el flujo browser-based de WebAuthn ya entro tambien al merge gate de CI y del workflow de Neon preview
 - el job `browser_e2e` ya genera Prisma Client de forma explicita antes de arrancar la API del laboratorio
 - el cleanup de infraestructura del laboratorio browser-based ya es best-effort para no fallar en cascada cuando el bootstrap se corta antes de crear `.env` o contenedores
+- la API ya expone `GET /api/metrics` con formato Prometheus, cubriendo requests, latencia, slow requests y checks de dependencias
+- el repo ya incluye `docker-compose.observability.yml` y reglas base para scrape/alertas locales con Prometheus y Alertmanager
+- el endpoint de metricas puede protegerse con `METRICS_BEARER_TOKEN` para no dejar telemetria operativa expuesta sin control
+- los intentos de `stamp/cancel` sobre facturas ajenas ya dejan `invoices.access.denied` en auditoria durable, no solo un `403`
 
 ## Dependencias
 

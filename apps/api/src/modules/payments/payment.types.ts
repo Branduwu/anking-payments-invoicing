@@ -6,6 +6,7 @@ export interface PaymentView {
   status: string;
   bankAccountRef: string;
   externalReference: string | null;
+  idempotencyKey: string | null;
   concept: string | null;
   createdAt: Date;
   updatedAt: Date;

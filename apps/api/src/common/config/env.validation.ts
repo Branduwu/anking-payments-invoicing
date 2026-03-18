@@ -72,6 +72,7 @@ const envSchema = z
     AUDIT_FAIL_CLOSED_DENIED_ACTION_PREFIXES: z.string().optional(),
     AUDIT_FAIL_CLOSED_ACTION_PREFIXES: z.string().optional(),
     HTTP_SLOW_REQUEST_THRESHOLD_MS: z.coerce.number().int().positive().default(1000),
+    METRICS_BEARER_TOKEN: z.string().min(16).optional(),
     ALLOW_DEGRADED_STARTUP: z
       .enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])
       .optional(),

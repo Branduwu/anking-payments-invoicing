@@ -24,7 +24,7 @@ Sirve para construir una plataforma que permita:
 - reautenticacion para operaciones criticas
 - MFA TOTP y WebAuthn/passkeys con lockout y recovery codes
 - rate limiting en `login` y `reauthenticate` por usuario/correo e IP en `Redis`
-- cobros bancarios persistidos en `PostgreSQL`
+- cobros bancarios persistidos en `PostgreSQL` con idempotencia de negocio
 - facturas con flujo `DRAFT -> STAMPED -> CANCELLED`
 - auditoria durable de eventos sensibles
 
@@ -103,6 +103,9 @@ Cliente
 |   |-- technical-faq.md
 |   |-- runbooks/
 |   `-- security-baseline.md
+|-- ops/
+|   |-- alertmanager/
+|   `-- prometheus/
 |-- scripts/
 |   |-- deploy-migrations.ps1
 |   |-- smoke-test.ps1
@@ -132,9 +135,10 @@ La base actual ya deja:
 - disable y admin reset de MFA con compensacion para restaurar el estado si Redis o la actualizacion de sesiones fallan
 - rate limiting de autenticacion en `Redis` para `login` y `reauthenticate`
 - throttling y lockout temporal para MFA
-- pagos persistidos con auditoria durable
+- pagos persistidos con auditoria durable e idempotencia por `idempotencyKey`
 - facturas con creacion, timbrado y cancelacion
 - lock de procesamiento en facturas para evitar doble timbrado o doble cancelacion por concurrencia
+- reconciliacion explicita de operaciones PAC ambiguas antes de reintentar `stamp/cancel`
 - relacion opcional `Invoice -> Payment` reforzada con FK en base de datos
 - PAC configurable y protegido para no usar `mock` por accidente en produccion
 - politica de auditoria fail-closed ampliada para mutaciones sensibles y fallos/denegaciones de seguridad
@@ -144,6 +148,8 @@ La base actual ya deja:
 - auditoria durable de rechazos de sesion, MFA pendiente y reautenticacion expirada a nivel guard
 - validacion explicita de `Origin`, `Referer` y `Sec-Fetch-Site` para mutaciones browser-based respaldadas por cookie, respetando `API_PREFIX` configurable
 - request logging estructurado para operacion
+- endpoint `GET /api/metrics` en formato Prometheus para requests, latencia, slow requests y dependencias
+- stack local de observabilidad con `Prometheus + Alertmanager` para scrape y reglas de alerta
 - modo degradado controlado cuando faltan dependencias
 - lint, build, tests, verify y smoke tests
 - E2E browser-based de WebAuthn ejecutable tambien desde CI
@@ -161,7 +167,7 @@ Los huecos importantes que todavia quedan:
 - falta un PAC vendor-specific real para CFDI productivo
 - el flujo browser-based de WebAuthn ya existe en `apps/web` y se valida con `Playwright`, pero aun puede endurecerse mas la UX final antes de una salida productiva
 - la auditoria fail-closed ya cubre mas casos sensibles, pero aun no abarca absolutamente todos los eventos
-- la observabilidad actual ya tiene health y logs estructurados, pero aun no esta conectada a un backend real de metricas o alertas
+- el repo ya incluye scrape y reglas base de `Prometheus`, pero aun falta conectarlo al backend/receiver real de tu entorno productivo
 - el despliegue productivo final sigue pendiente del destino real que elijas
 
 ## Como funciona hoy

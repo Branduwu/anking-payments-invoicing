@@ -10,6 +10,11 @@ export interface InvoiceView {
   pacReference: string | null;
   pacProvider: string | null;
   paymentId: string | null;
+  processingAction: string | null;
+  processingStartedAt: Date | null;
+  processingOperationId: string | null;
+  processingConfirmationRequired: boolean;
+  processingErrorDetail: string | null;
   createdAt: Date;
   updatedAt: Date;
   stampedAt: Date | null;
