@@ -54,6 +54,7 @@ async function bootstrap(): Promise<void> {
   await app.register(cors, {
     origin: corsOrigins,
     credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   const fastify = app.getHttpAdapter().getInstance();

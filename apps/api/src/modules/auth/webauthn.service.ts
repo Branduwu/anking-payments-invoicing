@@ -30,11 +30,20 @@ export interface StoredWebAuthnCredential {
 
 interface WebAuthnRegistrationChallengePayload {
   challenge: string;
+  origin: string;
+  rpId: string;
 }
 
 interface WebAuthnAuthenticationChallengePayload {
   challenge: string;
   purpose: WebAuthnAuthenticationPurpose;
+  origin: string;
+  rpId: string;
+}
+
+interface WebAuthnCeremonyContext {
+  origin: string;
+  rpId: string;
 }
 
 @Injectable()
@@ -60,12 +69,14 @@ export class WebAuthnService {
       displayName: string | null;
     },
     credentials: StoredWebAuthnCredential[],
+    requestOrigin?: string,
   ): Promise<PublicKeyCredentialCreationOptionsJSON> {
     await this.redisService.ensureAvailable();
+    const ceremonyContext = this.resolveCeremonyContext(requestOrigin);
 
     const options = await generateRegistrationOptions({
       rpName: this.getRpName(),
-      rpID: this.getRpId(),
+      rpID: ceremonyContext.rpId,
       userName: user.email,
       userID: Buffer.from(user.id, 'utf8'),
       userDisplayName: user.displayName ?? user.email,
@@ -84,6 +95,8 @@ export class WebAuthnService {
 
     await this.storeRegistrationChallenge(sessionId, {
       challenge: options.challenge,
+      origin: ceremonyContext.origin,
+      rpId: ceremonyContext.rpId,
     });
 
     return options;
@@ -92,15 +105,17 @@ export class WebAuthnService {
   async finishRegistration(
     sessionId: string,
     response: RegistrationResponseJSON,
+    requestOrigin?: string,
   ): Promise<Awaited<ReturnType<typeof verifyRegistrationResponse>>> {
     await this.redisService.ensureAvailable();
     const challenge = await this.consumeRegistrationChallenge(sessionId);
+    this.assertMatchingOrigin(challenge.origin, requestOrigin);
 
     return verifyRegistrationResponse({
       response,
       expectedChallenge: challenge.challenge,
-      expectedOrigin: this.getOrigins(),
-      expectedRPID: this.getRpId(),
+      expectedOrigin: challenge.origin,
+      expectedRPID: challenge.rpId,
       requireUserVerification: true,
     });
   }
@@ -109,15 +124,17 @@ export class WebAuthnService {
     sessionId: string,
     purpose: WebAuthnAuthenticationPurpose,
     credentials: StoredWebAuthnCredential[],
+    requestOrigin?: string,
   ): Promise<PublicKeyCredentialRequestOptionsJSON> {
     await this.redisService.ensureAvailable();
+    const ceremonyContext = this.resolveCeremonyContext(requestOrigin);
 
     if (credentials.length === 0) {
       throw new BadRequestException('No active WebAuthn credentials are registered for this account');
     }
 
     const options = await generateAuthenticationOptions({
-      rpID: this.getRpId(),
+      rpID: ceremonyContext.rpId,
       allowCredentials: credentials.map((credential) => ({
         id: credential.credentialId,
         transports: credential.transports,
@@ -129,6 +146,8 @@ export class WebAuthnService {
     await this.storeAuthenticationChallenge(sessionId, {
       challenge: options.challenge,
       purpose,
+      origin: ceremonyContext.origin,
+      rpId: ceremonyContext.rpId,
     });
 
     return options;
@@ -139,6 +158,7 @@ export class WebAuthnService {
     purpose: WebAuthnAuthenticationPurpose,
     response: AuthenticationResponseJSON,
     credential: StoredWebAuthnCredential,
+    requestOrigin?: string,
   ): Promise<Awaited<ReturnType<typeof verifyAuthenticationResponse>>> {
     await this.redisService.ensureAvailable();
     const challenge = await this.consumeAuthenticationChallenge(sessionId);
@@ -146,12 +166,13 @@ export class WebAuthnService {
     if (challenge.purpose !== purpose) {
       throw new UnauthorizedException('Stored WebAuthn challenge purpose does not match the request');
     }
+    this.assertMatchingOrigin(challenge.origin, requestOrigin);
 
     return verifyAuthenticationResponse({
       response,
       expectedChallenge: challenge.challenge,
-      expectedOrigin: this.getOrigins(),
-      expectedRPID: this.getRpId(),
+      expectedOrigin: challenge.origin,
+      expectedRPID: challenge.rpId,
       credential: {
         id: credential.credentialId,
         publicKey: new Uint8Array(credential.publicKey),
@@ -266,12 +287,77 @@ export class WebAuthnService {
       return [origins];
     }
 
-    return ['http://localhost:3000', 'http://localhost:4000'];
+    return [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:4000',
+      'http://127.0.0.1:4000',
+    ];
   }
 
   private getTimeoutMs(): number {
     return (
       this.configService.get<number>('app.auth.webauthn.timeoutMs', { infer: true }) ?? 60_000
     );
+  }
+
+  private resolveCeremonyContext(requestOrigin?: string): WebAuthnCeremonyContext {
+    const origins = this.getOrigins().map((origin) => this.normalizeOrigin(origin)).filter(Boolean);
+    const normalizedRequestOrigin = this.normalizeOrigin(requestOrigin);
+
+    if (normalizedRequestOrigin) {
+      if (!origins.includes(normalizedRequestOrigin)) {
+        throw new BadRequestException('WebAuthn origin is not allowed');
+      }
+
+      return {
+        origin: normalizedRequestOrigin,
+        rpId: this.resolveRpIdForOrigin(normalizedRequestOrigin),
+      };
+    }
+
+    const fallbackOrigin = origins[0] ?? 'http://localhost:3000';
+    return {
+      origin: fallbackOrigin,
+      rpId: this.resolveRpIdForOrigin(fallbackOrigin),
+    };
+  }
+
+  private resolveRpIdForOrigin(origin: string): string {
+    const configuredRpId = this.getRpId();
+    const hostname = new URL(origin).hostname;
+
+    if (this.isLoopbackHost(configuredRpId) && this.isLoopbackHost(hostname)) {
+      return hostname;
+    }
+
+    if (hostname === configuredRpId || hostname.endsWith(`.${configuredRpId}`)) {
+      return configuredRpId;
+    }
+
+    throw new BadRequestException('WebAuthn origin is not compatible with the configured RP ID');
+  }
+
+  private assertMatchingOrigin(expectedOrigin: string, requestOrigin?: string): void {
+    const normalizedRequestOrigin = this.normalizeOrigin(requestOrigin);
+    if (normalizedRequestOrigin && normalizedRequestOrigin !== expectedOrigin) {
+      throw new UnauthorizedException('WebAuthn request origin does not match the stored challenge');
+    }
+  }
+
+  private normalizeOrigin(origin?: string): string | null {
+    if (!origin) {
+      return null;
+    }
+
+    try {
+      return new URL(origin).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  private isLoopbackHost(hostname: string): boolean {
+    return hostname === 'localhost' || hostname === '127.0.0.1';
   }
 }

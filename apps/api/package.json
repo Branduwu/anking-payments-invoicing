@@ -14,7 +14,8 @@
     "prisma:migrate:dev": "prisma migrate dev --schema prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
-    "seed:admin": "node --env-file-if-exists=.env --env-file-if-exists=../../.env -r ts-node/register prisma/seed-admin.ts"
+    "seed:admin": "node --env-file-if-exists=.env --env-file-if-exists=../../.env -r ts-node/register prisma/seed-admin.ts",
+    "seed:webauthn-demo": "node --env-file-if-exists=.env --env-file-if-exists=../../.env -r ts-node/register prisma/seed-webauthn-demo.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.1",

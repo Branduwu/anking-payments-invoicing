@@ -699,7 +699,11 @@ describe('AuthService', () => {
       },
     );
 
-    expect(webAuthnService.finishRegistration).toHaveBeenCalledWith('sess_1', expect.any(Object));
+    expect(webAuthnService.finishRegistration).toHaveBeenCalledWith(
+      'sess_1',
+      expect.any(Object),
+      undefined,
+    );
     expect(prismaService.webAuthnCredential.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 'usr_1',
@@ -792,6 +796,7 @@ describe('AuthService', () => {
       expect.objectContaining({
         credentialId: 'webauthn_1',
       }),
+      undefined,
     );
     expect(sessionsService.completeMfaChallenge).toHaveBeenCalledWith('sess_1', 'webauthn');
     expect(result.purpose).toBe('login');

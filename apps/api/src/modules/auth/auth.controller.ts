@@ -221,8 +221,9 @@ export class AuthController {
   @RequireRecentReauth()
   async beginWebAuthnRegistration(
     @CurrentSession() session: ActiveSession,
+    @Req() request: FastifyRequest,
   ): Promise<PublicKeyCredentialCreationOptionsJSON> {
-    return this.authService.beginWebAuthnRegistration(session);
+    return this.authService.beginWebAuthnRegistration(session, this.getRequestOrigin(request));
   }
 
   @Post('webauthn/registration/verify')
@@ -242,6 +243,7 @@ export class AuthController {
       session,
       payload.response,
       getRequestMetadata(request),
+      this.getRequestOrigin(request),
     );
   }
 
@@ -251,8 +253,13 @@ export class AuthController {
   async beginWebAuthnAuthentication(
     @CurrentSession() session: ActiveSession,
     @Body() payload: WebAuthnAuthenticationOptionsDto,
+    @Req() request: FastifyRequest,
   ): Promise<PublicKeyCredentialRequestOptionsJSON> {
-    return this.authService.beginWebAuthnAuthentication(session, payload?.purpose);
+    return this.authService.beginWebAuthnAuthentication(
+      session,
+      payload?.purpose,
+      this.getRequestOrigin(request),
+    );
   }
 
   @Post('webauthn/authentication/verify')
@@ -268,6 +275,7 @@ export class AuthController {
       payload.response,
       getRequestMetadata(request),
       payload.purpose,
+      this.getRequestOrigin(request),
     );
 
     return {
@@ -315,5 +323,10 @@ export class AuthController {
       remainingCredentials: result.remainingCredentials,
       mfaEnabled: result.mfaEnabled,
     };
+  }
+
+  private getRequestOrigin(request: FastifyRequest): string | undefined {
+    const origin = request.headers.origin;
+    return Array.isArray(origin) ? origin[0] : origin;
   }
 }

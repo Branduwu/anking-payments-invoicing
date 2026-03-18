@@ -74,6 +74,8 @@ Minimo recomendado:
 - `MFA_ENCRYPTION_KEY`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
+- `CORS_ORIGIN`
+- `CSRF_TRUSTED_ORIGINS`
 - `WEBAUTHN_RP_NAME`
 - `WEBAUTHN_RP_ID`
 - `WEBAUTHN_ORIGINS`
@@ -85,6 +87,17 @@ DATABASE_URL=postgresql://platform:platform@localhost:5432/platform
 DIRECT_DATABASE_URL=postgresql://platform:platform@localhost:5432/platform
 REDIS_URL=redis://localhost:6379
 ```
+
+Para navegador local, hoy la configuracion recomendada es:
+
+```env
+CORS_ORIGIN=http://localhost:3000,http://127.0.0.1:3000
+CSRF_TRUSTED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:4000,http://127.0.0.1:4000
+WEBAUTHN_RP_ID=localhost
+WEBAUTHN_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:4000,http://127.0.0.1:4000
+```
+
+Eso permite usar el frontend minimo tanto desde `localhost` como desde `127.0.0.1` sin romper la ceremonia WebAuthn.
 
 ### Levantar
 
@@ -122,7 +135,7 @@ Recomendacion:
 - `DATABASE_URL`: URL pooled de Neon para la aplicacion
 - `DIRECT_DATABASE_URL`: URL directa para migraciones Prisma
 - usa una base dedicada y vacia para el proyecto, por ejemplo `banking_platform`
-- si el frontend corre en otro origen, agrega ese origen a `WEBAUTHN_ORIGINS`
+- si el frontend corre en otro origen, agrega ese origen a `WEBAUTHN_ORIGINS`, `CORS_ORIGIN` y `CSRF_TRUSTED_ORIGINS`
 - para local, `WEBAUTHN_RP_ID=localhost` suele ser el valor correcto
 
 ### Redis

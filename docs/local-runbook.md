@@ -88,7 +88,10 @@ Si no existe alguno de esos valores, el smoke test falla de forma explicita para
 
 El script ya contempla compatibilidad con Windows PowerShell 5.1 para las llamadas HTTP, asi que no depende del motor viejo de Internet Explorer.
 
-El smoke test no automatiza WebAuthn/passkeys porque la ceremonia requiere navegador real, `origin` valido y APIs del browser. La cobertura de passkeys hoy vive en pruebas unitarias y en validacion manual desde frontend o navegador.
+El smoke test no automatiza WebAuthn/passkeys porque la ceremonia requiere navegador real, `origin` valido y APIs del browser. Ese tramo ahora se cubre con:
+
+- frontend minimo en `apps/web`
+- `Playwright` con autenticador virtual en `tests/e2e/webauthn.spec.ts`
 
 El CRUD de `customers` esta pensado como verificacion util de orquestacion:
 
@@ -117,6 +120,98 @@ Es el mejor script para correr despues de cambios importantes.
 
 `npm run validate:full` es un alias de este mismo flujo.
 
+### `npm run dev:web`
+
+Levanta el frontend minimo de navegador en `http://localhost:3000`.
+
+Sirve para validar:
+
+1. login con cookie de sesion
+2. registro de passkey
+3. login MFA con passkey
+4. reautenticacion critica con passkey
+5. listado y revocacion de credenciales WebAuthn
+
+El panel ahora:
+
+1. detecta el `origin` del navegador
+2. propone la API equivalente en `localhost` o `127.0.0.1`
+3. deja botones para fijar rapido `localhost` y `127.0.0.1`
+4. deja probar `health/live` y `health/ready`
+5. muestra una pista si frontend y API quedaron con hosts mezclados
+6. mantiene un feedback visible de exito o error
+7. va sugiriendo el siguiente paso del flujo y deshabilita acciones que aun no toca usar
+8. mejora estados vacios para recovery codes y credenciales
+
+Puedes abrirlo en:
+
+- `http://localhost:3000`
+- `http://127.0.0.1:3000`
+
+Y debes mantener la pareja consistente:
+
+- `localhost -> localhost`
+- `127.0.0.1 -> 127.0.0.1`
+
+Si mezclas hosts, la ceremonia WebAuthn y las mutaciones browser-based pueden fallar por `origin`.
+
+### `npm run webauthn:demo`
+
+Levanta de una sola vez el laboratorio local de passkeys:
+
+1. sincroniza `.env` y `apps/api/.env`
+2. valida o levanta infraestructura con `infra:up`
+3. prepara el usuario demo reproducible
+4. levanta la API en `:4000` si no estaba ya arriba
+5. levanta el frontend en `:3000`
+6. imprime URLs, credenciales demo y rutas de logs
+
+Usuario demo:
+
+- `webauthn.demo@example.com`
+- `ChangeMeNow_123456789!`
+
+Para abrir el navegador al terminar:
+
+```powershell
+npm.cmd run webauthn:demo:open
+```
+
+Para apagar procesos levantados por ese flujo:
+
+```powershell
+npm.cmd run webauthn:demo:stop
+```
+
+Ese comando no intenta matar procesos previos que no haya iniciado el propio laboratorio. Si `:4000` o `:3000` ya estan arriba y sanos, los reutiliza.
+
+### `npm run seed:webauthn-demo`
+
+Resetea un usuario reproducible para pruebas de passkeys:
+
+- `webauthn.demo@example.com`
+- `ChangeMeNow_123456789!`
+
+Tambien limpia credenciales WebAuthn previas del usuario para que el flujo de registro y login MFA sea repetible.
+
+### `npm run e2e:webauthn`
+
+Corre la prueba browser-based real con `Playwright`:
+
+1. prepara infraestructura
+2. resetea el usuario demo de WebAuthn
+3. levanta API y frontend
+4. registra passkey con autenticador virtual
+5. completa login MFA con passkey
+6. ejecuta reautenticacion con passkey
+7. lista y revoca la credencial
+
+Si vas a correrlo por primera vez en una maquina nueva, antes instala Chromium:
+
+```powershell
+npm.cmd run e2e:install
+```
+
 ### `npm run verify`
 
 Hace esto:
@@ -139,7 +234,7 @@ Si cambiaste `schema.prisma` o migraciones, usa `npm run verify:full` con la API
 
 ### `npm run lint`
 
-Corre `ESLint` sobre el backend con reglas TypeScript y sirve como puerta rapida para errores de mantenibilidad antes del smoke test.
+Corre `ESLint` sobre el backend y typecheck del frontend `apps/web`, y sirve como puerta rapida para errores de mantenibilidad antes del smoke test.
 
 ### `npm run audit:deps`
 
@@ -283,11 +378,17 @@ Invoke-RestMethod -Method Get `
 
 No hay ejemplo util con `PowerShell` o `curl` para registrar o verificar passkeys porque la ceremonia depende de APIs del navegador y del `origin`. Para probar WebAuthn:
 
-1. inicia sesion en un frontend o pagina de prueba servida desde un origen incluido en `WEBAUTHN_ORIGINS`
-2. pide `POST /api/auth/webauthn/registration/options`
-3. llama `navigator.credentials.create(...)`
-4. envia la respuesta a `POST /api/auth/webauthn/registration/verify`
-5. para login o reautenticacion, repite con `navigator.credentials.get(...)` y `POST /api/auth/webauthn/authentication/verify`
+1. arranca el frontend minimo con `npm.cmd run dev:web` o usa `npm.cmd run e2e:webauthn`
+2. abre el panel en `http://localhost:3000` o `http://127.0.0.1:3000`
+3. pulsa `Probar API` y confirma `live=ok` y `ready=ready`
+4. si hace falta, usa `Usar localhost` o `Usar 127.0.0.1` para alinear frontend y API
+5. inicia sesion
+6. reautentica con password
+7. registra la passkey
+8. haz logout
+9. vuelve a login y completa `Completar login con passkey`
+10. reautentica con passkey
+11. carga y revoca la credencial
 
 ### Crear pago
 

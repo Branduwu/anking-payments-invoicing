@@ -23,29 +23,7 @@ Impacto:
 - la arquitectura ya soporta timbrado
 - aun no esta lista para fiscal real de produccion
 
-### 2. WebAuthn ya existe en backend, pero aun falta cerrar el tramo browser y E2E real
-
-Archivos:
-
-- `apps/api/src/modules/auth/auth.service.ts`
-- `apps/api/src/modules/auth/mfa.service.ts`
-- `apps/api/src/modules/auth/webauthn.service.ts`
-- `apps/api/src/modules/auth/auth.controller.ts`
-
-Estado:
-
-- TOTP, recovery codes, disable y admin reset ya existen
-- ya hay throttling y lockout
-- `login` y `reauthenticate` ya tienen rate limiting en `Redis` por correo/usuario e IP
-- WebAuthn/passkeys ya existe en backend para registro, autenticacion, reautenticacion, auditoria y revocacion
-- aun falta cerrar frontend/browser y una prueba E2E que ejercite la ceremonia real con origen valido
-
-Impacto:
-
-- la postura de autenticacion ya subio de forma importante
-- todavia falta la validacion operativa de punta a punta desde cliente real para darlo por cerrado a nivel producto
-
-### 3. La auditoria durable mejoro, pero sigue sin ser fail-closed para todo el universo de eventos
+### 2. La auditoria durable mejoro, pero sigue sin ser fail-closed para todo el universo de eventos
 
 Archivos:
 
@@ -65,7 +43,7 @@ Impacto:
 - las mutaciones de mayor riesgo estan mucho mejor protegidas
 - la postura de auditoria ya es mas consistente para rutas de seguridad, pero aun no es uniforme para todos los eventos
 
-### 4. La base operativa ya existe, pero falta conectarla a observabilidad productiva real
+### 3. La base operativa ya existe, pero falta conectarla a observabilidad productiva real
 
 Archivos:
 
@@ -352,6 +330,31 @@ Impacto:
 - reduce el riesgo de volver a transformar fallos operativos en `500` inesperados
 - hace mas mantenible la frontera entre errores de dependencia y errores internos
 
+### 14. WebAuthn ya tiene frontend minimo y prueba E2E real de navegador
+
+Archivos:
+
+- `apps/web/src/main.ts`
+- `apps/web/src/style.css`
+- `apps/web/index.html`
+- `playwright.config.ts`
+- `playwright.global-setup.ts`
+- `tests/e2e/webauthn.spec.ts`
+- `apps/api/prisma/seed-webauthn-demo.ts`
+- `apps/api/src/main.ts`
+
+Estado:
+
+- existe un frontend minimo dentro del repo para login, registro de passkey, login MFA, reautenticacion, listado y revocacion
+- la ceremonia browser-based ya se valida con `Playwright` usando autenticador virtual en Chromium
+- el flujo E2E cubre `register -> login MFA -> reauth -> revoke`
+- la API ya declara metodos CORS explicitos para soportar mutaciones browser-based como `DELETE` en revocacion de credenciales
+
+Impacto:
+
+- cierra el hueco entre backend de passkeys y validacion real desde navegador
+- reduce el riesgo de que CORS o la ceremonia WebAuthn fallen solo al integrar cliente real
+
 ## Mejoras aplicadas en este ciclo
 
 ### 1. CRUD util de `customers` para validar Prisma + Redis
@@ -411,6 +414,11 @@ Impacto:
 - la configuracion de cookie local y de CI ya no usa un nombre `__Host-*` invalido para HTTP
 - `verify` ahora reintenta bloqueos transitorios del engine de Prisma y `validate:local` incluye `lint`
 - el flujo full local ahora sincroniza env, espera readiness real y muestra logs utiles al fallar
+- el frontend minimo de WebAuthn ya soporta `localhost` y `127.0.0.1` con autodeteccion de API, health check desde el panel y una pista explicita cuando el `origin` del frontend no coincide con el host de la API
+- la ceremonia WebAuthn ya resuelve `origin` y `rpId` por request para loopback local, en lugar de asumir un unico host fijo para todas las pruebas browser-based
+- el panel de passkeys ya expone un flujo guiado con credenciales demo, siguiente paso sugerido y checklist visual para bajar friccion de prueba manual
+- ya existe `npm run webauthn:demo` para levantar de golpe infraestructura, seed demo, API y frontend sin reconstruir el orden a mano
+- la UX del panel de passkeys ya deja acciones inhabilitadas cuando todavia no aplican, feedback persistente de exito/error y estados vacios mas claros para reducir errores de operacion manual
 
 ## Dependencias
 
@@ -433,6 +441,6 @@ Estado actual de `npm audit`:
 ## Recomendacion de siguiente fase
 
 1. elegir e integrar un PAC real
-2. cerrar frontend/browser y E2E real para WebAuthn/passkeys
-3. conectar logs y metricas a observabilidad real
-4. endurecer aun mas la politica fail-closed de auditoria
+2. conectar logs y metricas a observabilidad real
+3. endurecer aun mas la politica fail-closed de auditoria
+4. pulir la UX final de passkeys en el frontend definitivo

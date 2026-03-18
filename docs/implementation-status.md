@@ -40,7 +40,7 @@ Capacidades actuales:
 Pendiente:
 
 - politicas mas avanzadas de password lifecycle si se requieren
-- endurecer experiencia de frontend/browser para passkeys y sus pruebas E2E
+- endurecer UX final de passkeys y su rollout productivo segun canal de frontend definitivo
 
 ### 2. Sesiones stateful
 
@@ -82,7 +82,7 @@ Capacidades actuales:
 
 Pendiente:
 
-- integracion frontend/browser de la ceremonia WebAuthn
+- pulir UX/browser final de la ceremonia WebAuthn segun frontend definitivo
 - flujos avanzados de recuperacion con politicas operativas mas maduras
 
 ### 4. Pagos
@@ -205,7 +205,7 @@ Evidencia:
 
 Nota:
 
-- la base backend de WebAuthn ya existe; lo que sigue pendiente es el cierre de UX/browser y E2E real desde frontend
+- la base backend de WebAuthn ya existe y ahora tambien hay frontend minimo en `apps/web` y E2E browser-based con `Playwright`; lo que sigue pendiente es endurecer la UX final segun el cliente definitivo
 
 ### Fase 5. Pagos
 
@@ -280,10 +280,10 @@ Despues de cambios importantes, el flujo recomendado y ya documentado es:
 ## Riesgos abiertos mas importantes
 
 1. Elegir e integrar PAC real.
-2. Cerrar frontend/browser y E2E real de WebAuthn/passkeys.
-3. Completar observabilidad con backend real de metricas, logs y alertas.
-4. Definir despliegue productivo final y automatizarlo.
-5. Seguir ampliando politicas `fail-closed` donde el riesgo operativo lo amerite.
+2. Completar observabilidad con backend real de metricas, logs y alertas.
+3. Definir despliegue productivo final y automatizarlo.
+4. Seguir ampliando politicas `fail-closed` donde el riesgo operativo lo amerite.
+5. Pulir la UX final de passkeys en el frontend definitivo.
 
 ## Documentos relacionados
 

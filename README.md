@@ -76,10 +76,15 @@ Cliente
 |       `-- deploy.yml
 |-- CONTRIBUTING.md
 |-- apps/
-|   `-- api/
-|       |-- prisma/
+|   |-- api/
+|   |   |-- prisma/
+|   |   |-- src/
+|   |   |-- eslint.config.mjs
+|   |   `-- package.json
+|   `-- web/
 |       |-- src/
-|       |-- eslint.config.mjs
+|       |-- index.html
+|       |-- vite.config.ts
 |       `-- package.json
 |-- docs/
 |   |-- api-surface.md
@@ -107,6 +112,8 @@ Cliente
 |   |-- validate-local.ps1
 |   `-- verify.ps1
 |-- .env.example
+|-- playwright.config.ts
+|-- playwright.global-setup.ts
 |-- SECURITY.md
 `-- docker-compose.yml
 ```
@@ -120,6 +127,8 @@ La base actual ya deja:
 - rotacion de sesion segura con rollback del reemplazo si la revocacion falla
 - MFA TOTP y WebAuthn/passkeys con setup, verify, recovery codes, disable y admin reset
 - registro, verificacion, listado y revocacion de credenciales WebAuthn
+- frontend minimo de navegador para WebAuthn/passkeys dentro de `apps/web`
+- prueba E2E real con `Playwright` y autenticador virtual para la ceremonia completa de WebAuthn
 - disable y admin reset de MFA con compensacion para restaurar el estado si Redis o la actualizacion de sesiones fallan
 - rate limiting de autenticacion en `Redis` para `login` y `reauthenticate`
 - throttling y lockout temporal para MFA
@@ -147,7 +156,7 @@ La foto detallada de que ya esta implementado, por fase y por modulo, vive en:
 Los huecos importantes que todavia quedan:
 
 - falta un PAC vendor-specific real para CFDI productivo
-- la integracion backend de WebAuthn ya existe, pero aun falta cerrar la experiencia de navegador/frontend y una prueba E2E real de la ceremonia browser-based
+- el flujo browser-based de WebAuthn ya existe en `apps/web` y se valida con `Playwright`, pero aun puede endurecerse mas la UX final antes de una salida productiva
 - la auditoria fail-closed ya cubre mas casos sensibles, pero aun no abarca absolutamente todos los eventos
 - la observabilidad actual ya tiene health y logs estructurados, pero aun no esta conectada a un backend real de metricas o alertas
 - el despliegue productivo final sigue pendiente del destino real que elijas
@@ -239,7 +248,7 @@ El modulo actual soporta:
 
 ### WebAuthn y passkeys
 
-El backend ya implementa la base de passkeys:
+La plataforma ya implementa la base de passkeys en backend y navegador:
 
 - `POST /api/auth/webauthn/registration/options`
 - `POST /api/auth/webauthn/registration/verify`
@@ -247,6 +256,8 @@ El backend ya implementa la base de passkeys:
 - `POST /api/auth/webauthn/authentication/verify`
 - `GET /api/auth/webauthn/credentials`
 - `DELETE /api/auth/webauthn/credentials/:credentialId`
+- `apps/web` ofrece un panel minimo para login, registro de passkey, login MFA con passkey, reautenticacion con passkey, listado y revocacion
+- `tests/e2e/webauthn.spec.ts` valida la ceremonia completa con `Playwright` y autenticador virtual en Chromium
 
 Las challenges viven en `Redis` y las credenciales durables viven en `PostgreSQL`.
 
@@ -255,6 +266,73 @@ Notas operativas:
 - `login` puede exigir `webauthn` como segundo factor
 - `reauthenticate` con password ya no es suficiente si el usuario tiene factores MFA activos; en ese caso debe usarse un factor MFA registrado
 - la ceremonia WebAuthn requiere navegador real y un `origin` permitido en `WEBAUTHN_ORIGINS`; `PowerShell` y `curl` no sustituyen esa parte
+
+### Frontend minimo WebAuthn
+
+Existe un frontend ligero en `apps/web` pensado para validar de forma visible:
+
+- login con cookie de sesion
+- reautenticacion con password
+- registro de passkey
+- login MFA con passkey
+- reautenticacion critica con passkey
+- listado y revocacion de credenciales
+
+Para usarlo localmente:
+
+```powershell
+npm.cmd run dev:web
+```
+
+El panel soporta tanto:
+
+- `http://localhost:3000`
+- `http://127.0.0.1:3000`
+
+Y ahora hace estas ayudas automaticamente:
+
+- detecta el host del navegador y propone la API equivalente (`localhost` o `127.0.0.1`)
+- deja botones para fijar rapido `localhost` o `127.0.0.1`
+- permite probar `health/live` y `health/ready` desde el mismo panel
+- muestra una pista visual si el host del frontend y el host de la API quedaron mezclados
+- incluye un bloque de demo guiado con credenciales reutilizables, siguiente paso sugerido y checklist visual del flujo
+- ya muestra feedback persistente de exito o error, acciones deshabilitadas segun contexto y estados vacios mas utiles para recovery codes y credenciales
+
+Regla practica:
+
+- si abres el panel en `http://localhost:3000`, usa `http://localhost:4000/api`
+- si abres el panel en `http://127.0.0.1:3000`, usa `http://127.0.0.1:4000/api`
+
+Eso evita el `Failed to fetch` que antes aparecia por mismatch de origin.
+
+### Arranque de golpe para passkeys
+
+Si quieres levantar infraestructura, demo user, API y frontend de una sola vez:
+
+```powershell
+npm.cmd run webauthn:demo
+```
+
+Si ademas quieres abrir el navegador al terminar:
+
+```powershell
+npm.cmd run webauthn:demo:open
+```
+
+Ese flujo:
+
+- sincroniza `.env` y `apps/api/.env`
+- valida o levanta infraestructura segun `DATABASE_URL`, `DIRECT_DATABASE_URL` y `REDIS_URL`
+- reseedea el usuario `webauthn.demo@example.com`
+- levanta la API en `:4000` si aun no existe una instancia sana
+- levanta el frontend en `:3000`
+- imprime URLs, credenciales demo y rutas de logs
+
+Para detener procesos iniciados por ese flujo:
+
+```powershell
+npm.cmd run webauthn:demo:stop
+```
 
 ### Pagos
 
@@ -420,9 +498,13 @@ npm.cmd run verify
 npm.cmd run lint
 npm.cmd run test
 npm.cmd run audit:deps
+npm.cmd run dev:web
 npm.cmd run infra:up
 npm.cmd run infra:down
 npm.cmd run smoke:test
+npm.cmd run seed:webauthn-demo
+npm.cmd run e2e:install
+npm.cmd run e2e:webauthn
 npm.cmd run validate:local
 npm.cmd run validate:full
 npm.cmd run prisma:migrate:controlled
@@ -432,7 +514,7 @@ Que hace cada uno:
 
 - `verify`: Prisma generate, build y unit tests
 - `verify` ya reintenta bloqueos transitorios del engine de Prisma en Windows antes de fallar
-- `lint`: validacion estatica con ESLint
+- `lint`: `ESLint` para `apps/api` y typecheck de `apps/web`
 - `audit:deps`: revisa vulnerabilidades de dependencias
 - `infra:up`: levanta `PostgreSQL` y `Redis`, corre migraciones y seed
 - `infra:up` solo levanta por Docker los servicios que sigan apuntando a `localhost`; si `DATABASE_URL`/`DIRECT_DATABASE_URL` o `REDIS_URL` son remotos, valida conectividad sin crear contenedores innecesarios
@@ -440,7 +522,11 @@ Que hace cada uno:
 - `seed:admin`: bootstrap del usuario administrador; asume Prisma Client ya generado por `verify`, `infra:up`, `validate:local` o `npm run prisma:generate`
 - `smoke:test`: valida endpoints principales contra una API ya levantada
 - `smoke:test` ahora tambien recorre el CRUD de `customers` y comprueba el salto `database -> cache` en Redis antes de pagos y facturas
-- `smoke:test` no automatiza la ceremonia browser-based de WebAuthn; para passkeys se cubren unit tests y validacion manual desde frontend o navegador real
+- `seed:webauthn-demo`: resetea el usuario demo de passkeys para pruebas reproducibles
+- `dev:web`: levanta el frontend minimo de navegador para WebAuthn/passkeys
+- `e2e:install`: instala Chromium para Playwright
+- `e2e:webauthn`: corre la prueba browser-based real de passkeys con autenticador virtual
+- `smoke:test` sigue cubriendo API y CLI; la ceremonia browser-based de WebAuthn se valida aparte con `Playwright`
 - `validate:local`: `verify` + `lint` + infraestructura + arranque + smoke tests
 - `validate:full`: alias legible de `validate:local`
 - `prisma:migrate:controlled`: corre `generate`, `migrate status` y `migrate deploy` de forma controlada
@@ -454,6 +540,10 @@ Cada vez que cambies logica de dominio, seguridad, infraestructura o contratos:
 3. `npm.cmd run validate:local`
 4. revisar `docs/code-audit.md`
 5. actualizar este `README` y la documentacion afectada
+
+Si el cambio toca `WebAuthn`, frontend browser o CORS de mutaciones:
+
+6. `npm.cmd run e2e:webauthn`
 
 Nota operativa:
 

@@ -9,9 +9,17 @@ dist/
 .validate-local-api.*.log
 api-start.log
 api-start.err
+api-dev.*.log
+web-dev.*.log
+.passkeys-lab-*.pid
+.passkeys-lab-*.log
 coverage/
 .turbo/
 .pnpm-store/
 apps/api/node_modules/
 apps/api/dist/
 apps/api/.nestjs-cache/
+apps/web/node_modules/
+apps/web/dist/
+test-results/
+playwright-report/

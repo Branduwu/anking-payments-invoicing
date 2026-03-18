@@ -836,6 +836,7 @@ export class AuthService {
 
   async beginWebAuthnRegistration(
     session: ActiveSession,
+    requestOrigin?: string,
   ): Promise<PublicKeyCredentialCreationOptionsJSON> {
     const user = await this.prismaService.user.findUnique({
       where: { id: session.userId },
@@ -868,6 +869,7 @@ export class AuthService {
         displayName: user.displayName,
       },
       user.webauthnCredentials.map((credential) => this.toStoredWebAuthnCredential(credential)),
+      requestOrigin,
     );
   }
 
@@ -875,6 +877,7 @@ export class AuthService {
     session: ActiveSession,
     response: RegistrationResponseJSON,
     metadata: RequestMetadata,
+    requestOrigin?: string,
   ): Promise<WebAuthnRegistrationResult> {
     const user = await this.prismaService.user.findUnique({
       where: { id: session.userId },
@@ -900,10 +903,10 @@ export class AuthService {
       throw new UnauthorizedException('Current user not found');
     }
 
-    let verification: Awaited<ReturnType<WebAuthnService['finishRegistration']>>;
-    try {
-      verification = await this.webAuthnService.finishRegistration(session.id, response);
-    } catch (error) {
+      let verification: Awaited<ReturnType<WebAuthnService['finishRegistration']>>;
+      try {
+        verification = await this.webAuthnService.finishRegistration(session.id, response, requestOrigin);
+      } catch (error) {
       await this.auditFailure('auth.webauthn.registration.failure', metadata, user.id, {
         reason: error instanceof Error ? error.message : 'challenge-or-verification-error',
       });
@@ -980,6 +983,7 @@ export class AuthService {
   async beginWebAuthnAuthentication(
     session: ActiveSession,
     purpose?: WebAuthnAuthenticationPurpose,
+    requestOrigin?: string,
   ): Promise<PublicKeyCredentialRequestOptionsJSON> {
     const resolvedPurpose = this.resolveWebAuthnAuthenticationPurpose(session, purpose);
     const user = await this.prismaService.user.findUnique({
@@ -1003,18 +1007,20 @@ export class AuthService {
       throw new UnauthorizedException('Current user not found');
     }
 
-    return this.webAuthnService.beginAuthentication(
-      session.id,
-      resolvedPurpose,
-      user.webauthnCredentials.map((credential) => this.toStoredWebAuthnCredential(credential)),
-    );
-  }
+      return this.webAuthnService.beginAuthentication(
+        session.id,
+        resolvedPurpose,
+        user.webauthnCredentials.map((credential) => this.toStoredWebAuthnCredential(credential)),
+        requestOrigin,
+      );
+    }
 
   async finishWebAuthnAuthentication(
     session: ActiveSession,
     response: AuthenticationResponseJSON,
     metadata: RequestMetadata,
     purpose?: WebAuthnAuthenticationPurpose,
+    requestOrigin?: string,
   ): Promise<WebAuthnAuthenticationResult> {
     const resolvedPurpose = this.resolveWebAuthnAuthenticationPurpose(session, purpose);
     const user = await this.prismaService.user.findUnique({
@@ -1054,13 +1060,14 @@ export class AuthService {
 
     let verification: Awaited<ReturnType<WebAuthnService['finishAuthentication']>>;
     try {
-      verification = await this.webAuthnService.finishAuthentication(
-        session.id,
-        resolvedPurpose,
-        response,
-        this.toStoredWebAuthnCredential(credential),
-      );
-    } catch (error) {
+        verification = await this.webAuthnService.finishAuthentication(
+          session.id,
+          resolvedPurpose,
+          response,
+          this.toStoredWebAuthnCredential(credential),
+          requestOrigin,
+        );
+      } catch (error) {
       await this.auditFailure('auth.webauthn.authentication.failure', metadata, user.id, {
         reason: error instanceof Error ? error.message : 'challenge-or-verification-error',
         purpose: resolvedPurpose,

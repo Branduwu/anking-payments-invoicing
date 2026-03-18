@@ -23,6 +23,13 @@ const resolveCookieSecure = (): boolean =>
   parseBoolean(process.env.COOKIE_SECURE, (process.env.NODE_ENV ?? 'development') === 'production');
 
 const resolveDefaultCookieName = (secure: boolean): string => (secure ? '__Host-session' : 'session');
+const defaultBrowserOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+const defaultWebAuthnOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:4000',
+  'http://127.0.0.1:4000',
+];
 
 export default registerAs('app', () => {
   const cookieSecure = resolveCookieSecure();
@@ -35,17 +42,11 @@ export default registerAs('app', () => {
   env: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
   apiPrefix: process.env.API_PREFIX ?? 'api',
-  corsOrigin: (process.env.CORS_ORIGIN ?? 'http://localhost:3000')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
+  corsOrigin: parseList(process.env.CORS_ORIGIN, defaultBrowserOrigins),
   security: {
     csrfTrustedOrigins: parseList(
       process.env.CSRF_TRUSTED_ORIGINS,
-      (process.env.CORS_ORIGIN ?? 'http://localhost:3000')
-        .split(',')
-        .map((origin) => origin.trim())
-        .filter(Boolean),
+      parseList(process.env.CORS_ORIGIN, defaultBrowserOrigins),
     ),
   },
   cookie: {
@@ -76,10 +77,7 @@ export default registerAs('app', () => {
     webauthn: {
       rpName: process.env.WEBAUTHN_RP_NAME ?? process.env.APP_NAME ?? 'banking-platform-api',
       rpId: process.env.WEBAUTHN_RP_ID ?? 'localhost',
-      origins: parseList(process.env.WEBAUTHN_ORIGINS, [
-        'http://localhost:3000',
-        'http://localhost:4000',
-      ]),
+      origins: parseList(process.env.WEBAUTHN_ORIGINS, defaultWebAuthnOrigins),
       timeoutMs: Number(process.env.WEBAUTHN_TIMEOUT_MS ?? 60_000),
     },
   },

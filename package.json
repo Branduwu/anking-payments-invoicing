@@ -3,16 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/api"
+    "apps/api",
+    "apps/web"
   ],
   "scripts": {
     "start": "npm run start:local",
-    "build": "npm run build:api",
+    "build": "npm run build:api && npm run build:web",
     "build:api": "npm --workspace apps/api run build",
-    "lint": "npm run lint:api",
+    "build:web": "npm --workspace apps/web run build",
+    "lint": "npm run lint:api && npm run lint:web",
     "lint:api": "npm --workspace apps/api run lint",
+    "lint:web": "npm --workspace apps/web run lint",
     "dev": "npm run dev:api",
     "dev:api": "npm --workspace apps/api run start:dev",
+    "dev:web": "npm --workspace apps/web run dev",
+    "webauthn:demo": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-passkeys-lab.ps1",
+    "webauthn:demo:open": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-passkeys-lab.ps1 -OpenBrowser",
+    "webauthn:demo:stop": "powershell -ExecutionPolicy Bypass -File .\\scripts\\stop-passkeys-lab.ps1",
+    "start:web": "npm --workspace apps/web run start",
     "start:local": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-local.ps1",
     "infra:up": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-infra.ps1",
     "infra:down": "powershell -ExecutionPolicy Bypass -File .\\scripts\\stop-infra.ps1",
@@ -30,6 +38,13 @@
     "prisma:migrate:status": "npm --workspace apps/api run prisma:migrate:status",
     "prisma:migrate:deploy": "npm --workspace apps/api run prisma:migrate:deploy",
     "prisma:migrate:controlled": "powershell -ExecutionPolicy Bypass -File .\\scripts\\deploy-migrations.ps1",
-    "seed:admin": "npm --workspace apps/api run seed:admin"
+    "seed:admin": "npm --workspace apps/api run seed:admin",
+    "seed:webauthn-demo": "npm --workspace apps/api run seed:webauthn-demo",
+    "e2e:webauthn": "playwright test -c playwright.config.ts",
+    "e2e:webauthn:headed": "playwright test -c playwright.config.ts --headed",
+    "e2e:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
   }
 }

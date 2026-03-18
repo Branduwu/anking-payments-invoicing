@@ -8,7 +8,10 @@ const envSchema = z
     APP_COMMIT_SHA: z.string().min(1).optional(),
     PORT: z.coerce.number().int().positive().default(4000),
     API_PREFIX: z.string().min(1).default('api'),
-    CORS_ORIGIN: z.string().min(1).default('http://localhost:3000'),
+    CORS_ORIGIN: z
+      .string()
+      .min(1)
+      .default('http://localhost:3000,http://127.0.0.1:3000'),
     COOKIE_NAME: z.string().min(1).default('session'),
     COOKIE_SECRET: z.string().min(32, 'COOKIE_SECRET debe tener al menos 32 caracteres'),
     COOKIE_SECURE: z
@@ -31,7 +34,12 @@ const envSchema = z
     MFA_ENCRYPTION_KEY: z.string().min(32, 'MFA_ENCRYPTION_KEY debe tener al menos 32 caracteres'),
     WEBAUTHN_RP_NAME: z.string().min(1).default('banking-platform-api'),
     WEBAUTHN_RP_ID: z.string().min(1).default('localhost'),
-    WEBAUTHN_ORIGINS: z.string().min(1).default('http://localhost:3000,http://localhost:4000'),
+    WEBAUTHN_ORIGINS: z
+      .string()
+      .min(1)
+      .default(
+        'http://localhost:3000,http://127.0.0.1:3000,http://localhost:4000,http://127.0.0.1:4000',
+      ),
     WEBAUTHN_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
     DATABASE_URL: z
       .string()

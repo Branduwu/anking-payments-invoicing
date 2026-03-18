@@ -24,7 +24,7 @@ describe('WebAuthnService', () => {
         case 'app.auth.webauthn.rpId':
           return 'localhost';
         case 'app.auth.webauthn.origins':
-          return ['http://localhost:3000'];
+          return ['http://localhost:3000', 'http://127.0.0.1:3000'];
         case 'app.auth.webauthn.timeoutMs':
           return 60000;
         default:
@@ -63,16 +63,49 @@ describe('WebAuthnService', () => {
         displayName: 'Admin',
       },
       [],
+      'http://localhost:3000',
     );
 
     expect(generateRegistrationOptions).toHaveBeenCalled();
     expect(redisClient.set).toHaveBeenCalledWith(
       'platform:webauthn:registration:sess_1',
-      JSON.stringify({ challenge: 'challenge-1' }),
+      JSON.stringify({
+        challenge: 'challenge-1',
+        origin: 'http://localhost:3000',
+        rpId: 'localhost',
+      }),
       'EX',
       120,
     );
     expect(result.challenge).toBe('challenge-1');
+  });
+
+  it('stores the effective origin and rpId for loopback aliases', async () => {
+    (generateRegistrationOptions as jest.Mock).mockResolvedValue({
+      challenge: 'challenge-2',
+    });
+
+    await service.beginRegistration(
+      'sess_2',
+      {
+        id: 'usr_1',
+        email: 'admin@example.com',
+        displayName: 'Admin',
+      },
+      [],
+      'http://127.0.0.1:3000',
+    );
+
+    expect(redisClient.set).toHaveBeenCalledWith(
+      'platform:webauthn:registration:sess_2',
+      JSON.stringify({
+        challenge: 'challenge-2',
+        origin: 'http://127.0.0.1:3000',
+        rpId: '127.0.0.1',
+      }),
+      'EX',
+      120,
+    );
   });
 
   it('rejects authentication options when no active credentials exist', async () => {
@@ -82,7 +115,14 @@ describe('WebAuthnService', () => {
   });
 
   it('verifies authentication using the stored challenge and consumes it', async () => {
-    redisClient.eval.mockResolvedValue(JSON.stringify({ challenge: 'challenge-1', purpose: 'login' }));
+    redisClient.eval.mockResolvedValue(
+      JSON.stringify({
+        challenge: 'challenge-1',
+        purpose: 'login',
+        origin: 'http://localhost:3000',
+        rpId: 'localhost',
+      }),
+    );
     (verifyAuthenticationResponse as jest.Mock).mockResolvedValue({
       verified: true,
       authenticationInfo: {
@@ -117,6 +157,7 @@ describe('WebAuthnService', () => {
         counter: 1,
         transports: ['internal'],
       },
+      'http://localhost:3000',
     );
 
     expect(redisClient.eval).toHaveBeenCalledWith(
@@ -141,9 +182,28 @@ describe('WebAuthnService', () => {
           attestationObject: 'attestation',
         },
         clientExtensionResults: {},
-      }),
+      }, 'http://localhost:3000'),
     ).rejects.toBeInstanceOf(UnauthorizedException);
 
     expect(verifyRegistrationResponse).not.toHaveBeenCalled();
+  });
+
+  it('rejects a WebAuthn origin that is not allowed', async () => {
+    await expect(
+      service.beginAuthentication(
+        'sess_1',
+        'login',
+        [
+          {
+            id: 'cred_1',
+            credentialId: 'cred_1',
+            publicKey: Buffer.from('public-key'),
+            counter: 1,
+            transports: ['internal'],
+          },
+        ],
+        'https://evil.example',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

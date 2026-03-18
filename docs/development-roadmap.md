@@ -89,10 +89,12 @@ Estado observado:
 
 - TOTP activo
 - WebAuthn/passkeys activos en backend
+- frontend minimo browser-based en `apps/web`
+- prueba E2E real con `Playwright` y autenticador virtual
 - recovery codes activos
 - reset y disable de MFA activos
 - reautenticacion activa
-- pendiente integracion frontend/browser y prueba E2E real de la ceremonia WebAuthn
+- pendiente endurecer UX final y rollout de passkeys segun cliente definitivo
 
 ## Fase 5. Pagos
 
@@ -161,6 +163,7 @@ Estado observado:
 - throttling MFA
 - observabilidad base
 - smoke tests
+- E2E browser-based de WebAuthn con `Playwright`
 - CI/CD
 - runbooks operativos
-- pendiente observabilidad real, alertas reales, browser E2E de WebAuthn y endurecimiento adicional segun despliegue final
+- pendiente observabilidad real, alertas reales y endurecimiento adicional segun despliegue final

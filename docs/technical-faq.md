@@ -323,6 +323,31 @@ Que hacer:
 2. valida `WEBAUTHN_RP_ID`
 3. valida `WEBAUTHN_ORIGINS`
 
+Hoy el repo ya incluye una ruta lista para eso:
+
+```powershell
+npm.cmd run dev:web
+npm.cmd run e2e:webauthn
+```
+
+`dev:web` levanta el panel minimo de passkeys y `e2e:webauthn` valida la ceremonia completa con `Playwright`.
+
+### Quiero levantar todo el laboratorio de passkeys de una sola vez
+
+Usa:
+
+```powershell
+npm.cmd run webauthn:demo
+```
+
+Y si quieres que abra el navegador al final:
+
+```powershell
+npm.cmd run webauthn:demo:open
+```
+
+Eso prepara infra, usuario demo, API y frontend con logs listos para revisar.
+
 ### `No active WebAuthn registration challenge found`
 
 Causas comunes:
@@ -336,6 +361,32 @@ Que hacer:
 1. vuelve a pedir `registration/options`
 2. termina la ceremonia sin recargar
 3. revisa `WEBAUTHN_TIMEOUT_MS`
+
+### WebAuthn o revocacion de credenciales falla con `Failed to fetch` en navegador
+
+Causas comunes:
+
+- la API no permite el metodo HTTP mutante en CORS
+- el frontend corre desde un `origin` no permitido
+- la API no esta arriba o el puerto no coincide
+- frontend y API estan mezclando `localhost` con `127.0.0.1`
+
+Que hacer:
+
+1. abre el panel y pulsa `Probar API`
+2. confirma que `live=ok` y `ready=ready`
+3. confirma que frontend y API usan la misma pareja:
+   - `http://localhost:3000` con `http://localhost:4000/api`
+   - o `http://127.0.0.1:3000` con `http://127.0.0.1:4000/api`
+4. revisa `CORS_ORIGIN`, `CSRF_TRUSTED_ORIGINS` y `WEBAUTHN_ORIGINS`
+5. si el panel marca mismatch, usa `Usar localhost` o `Usar 127.0.0.1`
+6. corre:
+
+```powershell
+npm.cmd run e2e:webauthn
+```
+
+Si ese flujo pasa, la ceremonia browser-based, el CORS y la revocacion WebAuthn ya quedaron bien orquestados.
 
 ## FAQ de trabajo diario
 
@@ -363,4 +414,3 @@ Segun el problema:
 - operacion local: [local-runbook.md](./local-runbook.md)
 - seguridad o hallazgos: [code-audit.md](./code-audit.md)
 - despliegue: [ci-cd.md](./ci-cd.md)
-
