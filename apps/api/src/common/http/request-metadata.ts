@@ -10,8 +10,7 @@ export const getRequestMetadata = (request: FastifyRequest): RequestMetadata => 
   ipAddress: request.ip,
   requestId: request.id,
   userAgent:
-    typeof request.headers['user-agent'] === 'string'
+    typeof request.headers?.['user-agent'] === 'string'
       ? request.headers['user-agent']
       : undefined,
 });
-

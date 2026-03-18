@@ -39,6 +39,15 @@ export default registerAs('app', () => {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),
+  security: {
+    csrfTrustedOrigins: parseList(
+      process.env.CSRF_TRUSTED_ORIGINS,
+      (process.env.CORS_ORIGIN ?? 'http://localhost:3000')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ),
+  },
   cookie: {
     name: cookieName,
     secret: process.env.COOKIE_SECRET ?? '',
@@ -51,6 +60,7 @@ export default registerAs('app', () => {
     idleTimeoutMinutes: Number(process.env.SESSION_IDLE_TIMEOUT_MINUTES ?? 15),
     absoluteTimeoutHours: Number(process.env.SESSION_ABSOLUTE_TIMEOUT_HOURS ?? 8),
     reauthWindowMinutes: Number(process.env.REAUTH_WINDOW_MINUTES ?? 5),
+    touchIntervalSeconds: Number(process.env.SESSION_TOUCH_INTERVAL_SECONDS ?? 60),
   },
   auth: {
     maxFailedAttempts: Number(process.env.AUTH_MAX_FAILED_ATTEMPTS ?? 5),

@@ -16,7 +16,7 @@
 ## Controles recomendados
 
 - `MFA` obligatorio para cuentas con privilegios altos
-- proteccion CSRF si hay navegadores y cookies de sesion
+- proteccion CSRF/origin si hay navegadores y cookies de sesion
 - rate limiting por IP, usuario y endpoint
 - bloqueo progresivo ante intentos fallidos
 - deteccion de anomalias por IP, dispositivo o geografia
@@ -30,6 +30,8 @@
 - no guardar passwords, secretos, tokens completos ni datos bancarios sensibles en logs
 - separar errores operativos de errores de seguridad
 - normalizar respuestas `401`, `403` y `429`
+- validar `Origin`, `Referer` y senales browser como `Sec-Fetch-Site` en mutaciones con cookie, respetando el prefijo real configurado para la API
+- limitar la persistencia de actividad de sesion en Redis por ventana configurable para reducir write amplification sin perder expiracion por inactividad
 
 ## Redis y PostgreSQL
 
@@ -62,4 +64,3 @@ Registrar como minimo:
 - accesos denegados
 - cobros iniciados y resueltos
 - facturas emitidas y canceladas
-

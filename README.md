@@ -128,6 +128,10 @@ La base actual ya deja:
 - PAC configurable y protegido para no usar `mock` por accidente en produccion
 - politica de auditoria fail-closed ampliada para mutaciones sensibles y fallos/denegaciones de seguridad
 - health checks con detalle por dependencia
+- autorecuperacion de `PostgreSQL` y `Redis` tanto desde `health/ready` como desde trafico normal que depende de sesiones, MFA, WebAuthn o rate limiting
+- actualizacion de actividad de sesion en Redis por ventana configurable para reducir writes innecesarios sobre Redis remoto
+- auditoria durable de rechazos de sesion, MFA pendiente y reautenticacion expirada a nivel guard
+- validacion explicita de `Origin`, `Referer` y `Sec-Fetch-Site` para mutaciones browser-based respaldadas por cookie, respetando `API_PREFIX` configurable
 - request logging estructurado para operacion
 - modo degradado controlado cuando faltan dependencias
 - lint, build, tests, verify y smoke tests
@@ -210,7 +214,10 @@ Si quieres ver el modelo con mas detalle, incluyendo un ER simple y el CRUD de r
 - `GET /api/sessions` lista sesiones activas
 - `DELETE /api/sessions/{id}` y `DELETE /api/sessions/all` permiten revocacion inmediata
 - cada request protegida vuelve a validar la sesion en `Redis`
+- la actividad de sesion ya no reescribe Redis en cada request; usa una ventana configurable via `SESSION_TOUCH_INTERVAL_SECONDS`
 - si `Redis` no puede confirmar la sesion, la ruta protegida debe fallar cerrada
+- si `Redis` estuvo caido al arranque y luego vuelve, las rutas de auth y sesion ya intentan recuperar conectividad sin esperar a que alguien pegue a `health/ready`
+- los rechazos por cookie ausente, sesion invalida, MFA pendiente o reautenticacion expirada ya dejan rastro en auditoria durable
 
 ### MFA
 
@@ -275,6 +282,7 @@ Notas operativas:
 - `GET /api/health/live` indica que el proceso esta arriba
 - `GET /api/health/ready` valida `PostgreSQL` y `Redis`
 - si una dependencia falla, `ready` devuelve `503` con detalle por dependencia
+- si la API arranco degradada y la dependencia vuelve, `ready` ya intenta reconectar sin requerir reinicio
 - los `503` operativos controlados se registran como `warn`, mientras que los `500` inesperados quedan en `error`
 - las requests ya generan logs estructurados con `requestId`, `statusCode`, `durationMs`, `ipAddress` y `userId`
 
@@ -310,6 +318,8 @@ Ajusta al menos:
 - `DATABASE_URL`
 - `DIRECT_DATABASE_URL`
 - `REDIS_URL`
+- `CSRF_TRUSTED_ORIGINS`
+- `SESSION_TOUCH_INTERVAL_SECONDS`
 - `WEBAUTHN_RP_NAME`
 - `WEBAUTHN_RP_ID`
 - `WEBAUTHN_ORIGINS`
@@ -334,6 +344,7 @@ Si vas a usar Neon, Prisma queda configurado asi:
 
 - `DATABASE_URL`: usa la URL pooled de Neon para la aplicacion
 - `DIRECT_DATABASE_URL`: usa la URL directa/no pooled para migraciones Prisma
+- `CSRF_TRUSTED_ORIGINS`: lista de `origins` permitidos para mutaciones browser-based con cookie; por defecto sigue a `CORS_ORIGIN`
 
 ### 3. Instalar dependencias
 
@@ -375,6 +386,9 @@ npm.cmd start
 ```
 
 Si no existen dependencias y `ALLOW_DEGRADED_STARTUP=true`, la API puede levantar en modo degradado para pruebas de arranque.
+
+Si las dependencias vuelven despues del arranque, `health/ready` ya intenta reconectar y recuperar el estado sin requerir reinicio del proceso.
+Las rutas protegidas de sesiones, MFA, WebAuthn y rate limiting tambien ya intentan recuperar Redis bajo trafico normal, sin depender solo del readiness probe.
 
 ### 7. Validar que todo quedo bien
 
@@ -445,11 +459,13 @@ Nota operativa:
 
 - si `npm.cmd run verify` falla con `EPERM` sobre `query_engine-windows.dll.node`, normalmente tienes una API o watcher de Node bloqueando Prisma en Windows; detenlo y repite la verificacion
 - si usas `COOKIE_NAME=__Host-session`, activa tambien `COOKIE_SECURE=true` y sirve la app por HTTPS; para local sobre HTTP el valor recomendado es `session`
+- `SESSION_TOUCH_INTERVAL_SECONDS` controla cada cuanto se persiste actividad de sesion en Redis; sirve para bajar write amplification sin perder expiracion por inactividad
 - `infra:up`, `start-local` y `validate:local` sincronizan `apps/api/.env` desde el `.env` raiz para evitar drift de configuracion
 - `start-local` ya revisa `DIRECT_DATABASE_URL` y `REDIS_URL`; si apuntan a Neon o Redis administrado, no asume `localhost`
 - `validate:local` exige `health/live.status=ok` y `health/ready.status=ready`, y si la API no levanta o el smoke falla imprime logs recientes para diagnostico rapido
 - si `validate:local` arranca la API y luego falla, limpia el proceso para no dejar el puerto `4000` ocupado
 - si cambias `WEBAUTHN_RP_ID` o `WEBAUTHN_ORIGINS`, valida la ceremonia desde un navegador real del mismo origen que usara el frontend
+- la proteccion de mutaciones con cookie sigue a `API_PREFIX`; si cambias ese prefijo, no necesitas mantener listas hardcodeadas separadas
 
 ## CI/CD preparado para repo
 

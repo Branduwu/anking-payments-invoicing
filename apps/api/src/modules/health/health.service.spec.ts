@@ -22,6 +22,7 @@ describe('HealthService', () => {
 
   const prismaService = {
     isAvailable: jest.fn(),
+    ensureConnected: jest.fn(),
     markAvailable: jest.fn(),
     markUnavailable: jest.fn(),
     $queryRaw: jest.fn(),
@@ -29,6 +30,7 @@ describe('HealthService', () => {
 
   const redisService = {
     isAvailable: jest.fn(),
+    ensureConnected: jest.fn(),
     markAvailable: jest.fn(),
     markUnavailable: jest.fn(),
     ping: jest.fn(),
@@ -57,9 +59,9 @@ describe('HealthService', () => {
   });
 
   it('returns ready when dependencies respond', async () => {
-    prismaService.isAvailable.mockReturnValue(true);
+    prismaService.ensureConnected.mockResolvedValue(true);
     prismaService.$queryRaw.mockResolvedValue(undefined);
-    redisService.isAvailable.mockReturnValue(true);
+    redisService.ensureConnected.mockResolvedValue(true);
     redisService.ping.mockResolvedValue('PONG');
 
     const payload = await service.getReadiness();
@@ -80,8 +82,8 @@ describe('HealthService', () => {
   });
 
   it('returns degraded when dependencies are unavailable', async () => {
-    prismaService.isAvailable.mockReturnValue(false);
-    redisService.isAvailable.mockReturnValue(false);
+    prismaService.ensureConnected.mockResolvedValue(false);
+    redisService.ensureConnected.mockResolvedValue(false);
 
     const payload = await service.getReadiness();
 
@@ -98,5 +100,18 @@ describe('HealthService', () => {
         }),
       ]),
     );
+  });
+
+  it('recovers readiness when dependencies reconnect after a degraded startup', async () => {
+    prismaService.ensureConnected.mockResolvedValue(true);
+    prismaService.$queryRaw.mockResolvedValue(undefined);
+    redisService.ensureConnected.mockResolvedValue(true);
+    redisService.ping.mockResolvedValue('PONG');
+
+    const payload = await service.getReadiness();
+
+    expect(payload.status).toBe('ready');
+    expect(prismaService.ensureConnected).toHaveBeenCalled();
+    expect(redisService.ensureConnected).toHaveBeenCalled();
   });
 });

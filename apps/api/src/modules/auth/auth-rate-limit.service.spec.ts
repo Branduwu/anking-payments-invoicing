@@ -27,7 +27,7 @@ describe('AuthRateLimitService', () => {
   };
 
   const redisService = {
-    assertAvailable: jest.fn(),
+    ensureAvailable: jest.fn(async () => undefined),
     client: {
       get: jest.fn(async (key: string) => store.get(key)?.value ?? null),
       incr: jest.fn(async (key: string) => {

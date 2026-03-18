@@ -30,7 +30,7 @@ export class MfaService {
   ) {}
 
   async createSetup(sessionId: string, email: string): Promise<MfaSetupResponseDto> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const otp = this.getOtpLib();
     const secret = otp.generateSecret();
     const encryptedSecret = this.encryptSecret(secret);
@@ -62,7 +62,7 @@ export class MfaService {
   }
 
   async verifyPendingSetup(sessionId: string, code: string): Promise<string | null> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const encryptedSecret = await this.redisService.client.get(this.getPendingSetupKey(sessionId));
 
     if (!encryptedSecret) {
@@ -77,7 +77,7 @@ export class MfaService {
   }
 
   async clearPendingSetup(sessionId: string): Promise<void> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     await this.redisService.client.del(this.getPendingSetupKey(sessionId));
   }
 
@@ -272,7 +272,7 @@ export class MfaService {
   }
 
   private async assertVerificationAllowed(context: MfaThrottleContext): Promise<void> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const lockValue = await this.redisService.client.get(this.getVerificationLockKey(context));
 
     if (lockValue) {
@@ -287,7 +287,7 @@ export class MfaService {
     context: MfaThrottleContext,
     success: boolean,
   ): Promise<void> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
 
     const attemptsKey = this.getVerificationAttemptsKey(context);
     const lockKey = this.getVerificationLockKey(context);

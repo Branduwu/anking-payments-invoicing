@@ -59,7 +59,7 @@ export class AuthRateLimitService {
     message: string,
     actors: string[],
   ): Promise<void> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
 
     for (const actor of actors) {
       const rawValue = await this.redisService.client.get(this.getScopeKey(scope, actor));
@@ -76,7 +76,7 @@ export class AuthRateLimitService {
     maxAttempts: number,
     actors: string[],
   ): Promise<void> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
 
     for (const actor of actors) {
       const key = this.getScopeKey(scope, actor);
@@ -93,7 +93,7 @@ export class AuthRateLimitService {
   }
 
   private async clearScope(scope: AuthRateLimitScope, actors: string[]): Promise<void> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
 
     const keys = actors.map((actor) => this.getScopeKey(scope, actor));
     if (keys.length === 0) {

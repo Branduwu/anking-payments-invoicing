@@ -11,6 +11,7 @@ import * as classTransformer from 'class-transformer';
 import * as classValidator from 'class-validator';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { evaluateCsrfProtection } from './common/http/csrf-origin-protection';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -24,8 +25,25 @@ async function bootstrap(): Promise<void> {
   const apiPrefix = configService.get<string>('app.apiPrefix', { infer: true }) ?? 'api';
   const port = configService.get<number>('app.port', { infer: true }) ?? 4000;
   const cookieSecret = configService.get<string>('app.cookie.secret', { infer: true }) ?? '';
-  const corsOrigins =
-    configService.get<string[]>('app.corsOrigin', { infer: true }) ?? ['http://localhost:3000'];
+  const configuredCorsOrigins = configService.get<string[] | string>('app.corsOrigin', {
+    infer: true,
+  });
+  const corsOrigins = Array.isArray(configuredCorsOrigins)
+    ? configuredCorsOrigins
+    : typeof configuredCorsOrigins === 'string'
+      ? [configuredCorsOrigins]
+      : ['http://localhost:3000'];
+  const cookieName =
+    configService.get<string>('app.cookie.name', { infer: true }) ?? '__Host-session';
+  const configuredCsrfTrustedOrigins = configService.get<string[] | string>(
+    'app.security.csrfTrustedOrigins',
+    { infer: true },
+  );
+  const csrfTrustedOrigins = Array.isArray(configuredCsrfTrustedOrigins)
+    ? configuredCsrfTrustedOrigins
+    : typeof configuredCsrfTrustedOrigins === 'string'
+      ? [configuredCsrfTrustedOrigins]
+      : corsOrigins;
 
   await app.register(helmet, {
     contentSecurityPolicy: false,
@@ -36,6 +54,35 @@ async function bootstrap(): Promise<void> {
   await app.register(cors, {
     origin: corsOrigins,
     credentials: true,
+  });
+
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('preHandler', async (request, reply) => {
+    const decision = evaluateCsrfProtection(
+      {
+        method: request.method,
+        url: request.url,
+        cookies: request.cookies,
+        headers: request.headers as Record<string, string | string[] | undefined>,
+      },
+      {
+        apiPrefix,
+        cookieName,
+        trustedOrigins: csrfTrustedOrigins,
+      },
+    );
+
+    if (!decision.allowed) {
+      return reply.status(403).send({
+        statusCode: 403,
+        message: 'Request origin is not allowed for cookie-backed mutation',
+        reason: decision.reason,
+        detail: decision.detail,
+        timestamp: new Date().toISOString(),
+        path: request.url,
+        requestId: request.id,
+      });
+    }
   });
 
   app.enableShutdownHooks();

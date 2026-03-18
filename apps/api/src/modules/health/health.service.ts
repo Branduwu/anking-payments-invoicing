@@ -57,16 +57,17 @@ export class HealthService {
   private async checkDatabase(): Promise<DependencyHealthCheck> {
     const startedAt = Date.now();
 
-    if (!this.prismaService.isAvailable()) {
-      return {
-        name: 'postgresql',
-        status: 'down',
-        latencyMs: Date.now() - startedAt,
-        detail: 'Prisma connection unavailable',
-      };
-    }
-
     try {
+      const connected = await this.prismaService.ensureConnected();
+      if (!connected) {
+        return {
+          name: 'postgresql',
+          status: 'down',
+          latencyMs: Date.now() - startedAt,
+          detail: 'Prisma connection unavailable',
+        };
+      }
+
       await this.prismaService.$queryRaw`SELECT 1`;
       this.prismaService.markAvailable();
 
@@ -90,16 +91,17 @@ export class HealthService {
   private async checkRedis(): Promise<DependencyHealthCheck> {
     const startedAt = Date.now();
 
-    if (!this.redisService.isAvailable()) {
-      return {
-        name: 'redis',
-        status: 'down',
-        latencyMs: Date.now() - startedAt,
-        detail: 'Redis connection unavailable',
-      };
-    }
-
     try {
+      const connected = await this.redisService.ensureConnected();
+      if (!connected) {
+        return {
+          name: 'redis',
+          status: 'down',
+          latencyMs: Date.now() - startedAt,
+          detail: 'Redis connection unavailable',
+        };
+      }
+
       await this.redisService.ping();
       this.redisService.markAvailable();
 

@@ -61,7 +61,7 @@ export class WebAuthnService {
     },
     credentials: StoredWebAuthnCredential[],
   ): Promise<PublicKeyCredentialCreationOptionsJSON> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
 
     const options = await generateRegistrationOptions({
       rpName: this.getRpName(),
@@ -93,7 +93,7 @@ export class WebAuthnService {
     sessionId: string,
     response: RegistrationResponseJSON,
   ): Promise<Awaited<ReturnType<typeof verifyRegistrationResponse>>> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const challenge = await this.consumeRegistrationChallenge(sessionId);
 
     return verifyRegistrationResponse({
@@ -110,7 +110,7 @@ export class WebAuthnService {
     purpose: WebAuthnAuthenticationPurpose,
     credentials: StoredWebAuthnCredential[],
   ): Promise<PublicKeyCredentialRequestOptionsJSON> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
 
     if (credentials.length === 0) {
       throw new BadRequestException('No active WebAuthn credentials are registered for this account');
@@ -140,7 +140,7 @@ export class WebAuthnService {
     response: AuthenticationResponseJSON,
     credential: StoredWebAuthnCredential,
   ): Promise<Awaited<ReturnType<typeof verifyAuthenticationResponse>>> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const challenge = await this.consumeAuthenticationChallenge(sessionId);
 
     if (challenge.purpose !== purpose) {

@@ -14,9 +14,11 @@ const envSchema = z
     COOKIE_SECURE: z
       .enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])
       .optional(),
+    CSRF_TRUSTED_ORIGINS: z.string().optional(),
     SESSION_IDLE_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(15),
     SESSION_ABSOLUTE_TIMEOUT_HOURS: z.coerce.number().int().positive().default(8),
     REAUTH_WINDOW_MINUTES: z.coerce.number().int().positive().default(5),
+    SESSION_TOUCH_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
     AUTH_MAX_FAILED_ATTEMPTS: z.coerce.number().int().positive().default(5),
     AUTH_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
     AUTH_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().positive().default(10),
@@ -40,8 +42,7 @@ const envSchema = z
       .string()
       .refine((value) => value.startsWith('postgresql://') || value.startsWith('postgres://'), {
         message: 'DIRECT_DATABASE_URL debe usar el esquema postgresql:// o postgres://',
-      })
-      .optional(),
+      }),
     REDIS_URL: z
       .string()
       .refine((value) => value.startsWith('redis://') || value.startsWith('rediss://'), {

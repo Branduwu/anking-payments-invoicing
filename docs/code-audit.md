@@ -227,6 +227,131 @@ Impacto:
 - reduce la ventana de replay bajo concurrencia
 - fortalece la integridad de la ceremonia WebAuthn en login y reautenticacion
 
+### 8. El modo degradado ya puede recuperarse sin reinicio cuando vuelven PostgreSQL o Redis
+
+Archivos:
+
+- `apps/api/src/infrastructure/prisma/prisma.service.ts`
+- `apps/api/src/infrastructure/redis/redis.service.ts`
+- `apps/api/src/modules/health/health.service.ts`
+- `apps/api/src/modules/health/health.service.spec.ts`
+
+Estado:
+
+- `PrismaService` y `RedisService` ya exponen `ensureConnected()`
+- `health/ready` ya vuelve a sondear dependencias aunque hayan arrancado como no disponibles
+- `Redis` ya puede recrear o reconectar el cliente despues de un arranque degradado
+- ya existe prueba de readiness para recuperacion posterior
+
+Impacto:
+
+- evita que la API quede degradada hasta reinicio cuando la infraestructura vuelve
+- mejora la resiliencia operativa frente a fallos temporales
+
+### 9. La autorecuperacion de Redis ya funciona tambien bajo trafico normal de auth y sesiones
+
+Archivos:
+
+- `apps/api/src/infrastructure/redis/redis.service.ts`
+- `apps/api/src/modules/sessions/sessions.service.ts`
+- `apps/api/src/modules/auth/auth-rate-limit.service.ts`
+- `apps/api/src/modules/auth/mfa.service.ts`
+- `apps/api/src/modules/auth/webauthn.service.ts`
+
+Estado:
+
+- `RedisService` ya expone `ensureAvailable()` para reconectar antes de fallar cerrado
+- sesiones, rate limiting, MFA y WebAuthn ya dejaron de depender solo de `assertAvailable()`
+- si Redis vuelve despues de un arranque degradado, las rutas de auth y sesion ya intentan recuperarlo en trafico real
+
+Impacto:
+
+- elimina la ventana donde la app seguia fallando aunque Redis ya hubiera vuelto
+- mejora la autocuracion real sin depender exclusivamente de `health/ready`
+
+### 10. Los rechazos de auth en guards ya dejan auditoria durable
+
+Archivos:
+
+- `apps/api/src/common/guards/session-auth.guard.ts`
+- `apps/api/src/common/guards/recent-reauth.guard.ts`
+- `apps/api/src/common/guards/session-auth.guard.spec.ts`
+- `apps/api/src/common/guards/recent-reauth.guard.spec.ts`
+
+Estado:
+
+- cookie ausente, sesion invalida o expirada, MFA pendiente y reautenticacion ausente o vencida ya generan `AuditEvent`
+- los rechazos quedan asociados a `requestId`, `ipAddress`, ruta y sesion cuando existe
+- ya hay pruebas para esos caminos
+
+Impacto:
+
+- mejora la trazabilidad de seguridad en el punto exacto donde antes se perdia contexto
+- fortalece la investigacion de incidentes y accesos denegados
+
+### 11. La API ya tiene defensa explicita de `Origin` / `Referer` / `Sec-Fetch-Site` para mutaciones con cookie
+
+Archivos:
+
+- `apps/api/src/main.ts`
+- `apps/api/src/common/http/csrf-origin-protection.ts`
+- `apps/api/src/common/http/csrf-origin-protection.spec.ts`
+- `apps/api/src/common/config/app.config.ts`
+- `apps/api/src/common/config/env.validation.ts`
+- `.env.example`
+
+Estado:
+
+- las mutaciones browser-based respaldadas por cookie ya validan `Origin`, `Referer` o `Sec-Fetch-Site`
+- los clientes no browser sin esas cabeceras siguen pudiendo operar localmente
+- `CSRF_TRUSTED_ORIGINS` ya permite explicitar los origins de confianza
+- la proteccion ya sigue `API_PREFIX` configurable y normaliza query strings o trailing slashes antes de decidir
+- ya existe prueba unitaria de la politica de decision
+
+Impacto:
+
+- reduce la exposicion a CSRF en un modelo stateful con cookies
+- endurece el backend sin romper los smoke tests ni la operacion CLI
+
+### 12. La validacion de sesion ya no reescribe Redis en cada request autenticada
+
+Archivos:
+
+- `apps/api/src/modules/sessions/sessions.service.ts`
+- `apps/api/src/modules/sessions/sessions.service.spec.ts`
+- `apps/api/src/common/config/app.config.ts`
+- `apps/api/src/common/config/env.validation.ts`
+- `.env.example`
+
+Estado:
+
+- `validateSession` ahora persiste actividad por ventana configurable en lugar de hacerlo en cada request
+- `SESSION_TOUCH_INTERVAL_SECONDS` controla el debounce de actividad de sesion
+- ya existen pruebas para tocar la sesion cuando la ventana expira y para evitar writes innecesarios entre requests cercanas
+
+Impacto:
+
+- reduce write amplification sobre Redis remoto
+- mejora escalabilidad sin perder expiracion por inactividad
+
+### 13. La clasificacion de errores de dependencia en el filtro global ya es mas explicita y menos fragil
+
+Archivos:
+
+- `apps/api/src/common/filters/all-exceptions.filter.ts`
+- `apps/api/src/common/filters/all-exceptions.filter.spec.ts`
+
+Estado:
+
+- el filtro ya usa una clasificacion centralizada por codigos, nombres conocidos, causas encadenadas y un conjunto acotado de mensajes
+- se elimino la dependencia de regex abiertas para distinguir fallos operativos
+- ya existe prueba para `ECONNREFUSED`, errores de dependencia conocidos y errores internos reales
+
+Impacto:
+
+- reduce el riesgo de volver a transformar fallos operativos en `500` inesperados
+- hace mas mantenible la frontera entre errores de dependencia y errores internos
+
 ## Mejoras aplicadas en este ciclo
 
 ### 1. CRUD util de `customers` para validar Prisma + Redis

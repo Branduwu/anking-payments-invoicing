@@ -11,6 +11,7 @@ describe('validateEnv', () => {
     SESSION_IDLE_TIMEOUT_MINUTES: '15',
     SESSION_ABSOLUTE_TIMEOUT_HOURS: '8',
     REAUTH_WINDOW_MINUTES: '5',
+    SESSION_TOUCH_INTERVAL_SECONDS: '60',
     AUTH_MAX_FAILED_ATTEMPTS: '5',
     AUTH_LOCKOUT_MINUTES: '15',
     AUTH_RATE_LIMIT_WINDOW_MINUTES: '10',
@@ -22,6 +23,7 @@ describe('validateEnv', () => {
     MFA_VERIFY_LOCKOUT_MINUTES: '15',
     MFA_ENCRYPTION_KEY: '12345678901234567890123456789012',
     DATABASE_URL: 'postgresql://platform:platform@localhost:5432/platform',
+    DIRECT_DATABASE_URL: 'postgresql://platform:platform@localhost:5432/platform',
     REDIS_URL: 'redis://localhost:6379',
     PAC_PROVIDER: 'mock',
     PAC_TIMEOUT_MS: '10000',
@@ -52,5 +54,13 @@ describe('validateEnv', () => {
     });
 
     expect(parsed.COOKIE_NAME).toBe('__Host-session');
+  });
+
+  it('requires DIRECT_DATABASE_URL to match the Prisma schema contract', () => {
+    expect(() => {
+      const { DIRECT_DATABASE_URL, ...incompleteEnv } = baseEnv;
+      void DIRECT_DATABASE_URL;
+      validateEnv(incompleteEnv);
+    }).toThrow();
   });
 });

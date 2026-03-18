@@ -40,7 +40,7 @@ describe('MfaService', () => {
   };
 
   const redisService = {
-    assertAvailable: jest.fn(),
+    ensureAvailable: jest.fn(async () => undefined),
     client: redisClient,
   };
 

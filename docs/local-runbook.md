@@ -16,6 +16,7 @@ Este documento explica como levantar la plataforma localmente, que valida cada s
 ### Redis
 
 - guarda sesiones stateful, challenges WebAuthn y datos efimeros de MFA.
+- guarda tambien rate limiting de auth y actividad de sesion persistida por ventana configurable.
 - escucha en `localhost:6379`.
 
 ### API NestJS
@@ -54,6 +55,7 @@ Hace esto:
 4. arranca la API en modo desarrollo
 
 `start` no se guia solo por `localhost:5432/6379`: revisa `DIRECT_DATABASE_URL` y `REDIS_URL`, asi que funciona igual con Neon y Redis remoto.
+Si Redis arranco degradado y luego vuelve, las rutas de sesiones, MFA, WebAuthn y rate limiting ya intentan recuperar conectividad tambien bajo trafico normal.
 
 ### `npm run smoke:test`
 
@@ -178,6 +180,8 @@ npm.cmd run validate:local
 - `DIRECT_DATABASE_URL`
 - `REDIS_URL`
 - `ALLOW_DEGRADED_STARTUP`
+- `CSRF_TRUSTED_ORIGINS`
+- `SESSION_TOUCH_INTERVAL_SECONDS`
 - `AUDIT_FAIL_CLOSED_SUCCESS_ACTION_PREFIXES`
 - `AUDIT_FAIL_CLOSED_FAILURE_ACTION_PREFIXES`
 - `AUDIT_FAIL_CLOSED_DENIED_ACTION_PREFIXES`
@@ -212,6 +216,7 @@ npm.cmd run validate:local
 - `GET /api/health/ready`
 
 `health/live` ya devuelve metadata del servicio y `health/ready` devuelve checks por dependencia cuando algo falla.
+Las mutaciones con cookie validan `Origin`, `Referer` y `Sec-Fetch-Site` siguiendo el `API_PREFIX` configurado, no una lista fija acoplada a `/api`.
 
 ### Auth
 
@@ -356,6 +361,8 @@ curl -b cookies.txt \
 - `health/ready` devuelve `503`
 - la API levanta, pero Prisma y Redis reales no estan disponibles
 - endpoints de negocio o sesion fallan con `503`
+- cuando la dependencia vuelve, `health/ready` ya intenta reconectar sin requerir reinicio
+- auth y sesiones tambien ya pueden disparar la recuperacion de Redis sin esperar a que alguien consulte `health/ready`
 
 ## Troubleshooting
 

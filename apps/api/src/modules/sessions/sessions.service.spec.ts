@@ -2,11 +2,24 @@ import { SessionsService } from './sessions.service';
 
 describe('SessionsService', () => {
   const configService = {
-    get: jest.fn(),
+    get: jest.fn((path: string) => {
+      switch (path) {
+        case 'app.session.idleTimeoutMinutes':
+          return 15;
+        case 'app.session.absoluteTimeoutHours':
+          return 8;
+        case 'app.session.reauthWindowMinutes':
+          return 5;
+        case 'app.session.touchIntervalSeconds':
+          return 60;
+        default:
+          return undefined;
+      }
+    }),
   };
 
   const redisService = {
-    assertAvailable: jest.fn(),
+    ensureAvailable: jest.fn(async () => undefined),
   };
 
   const auditService = {
@@ -15,6 +28,7 @@ describe('SessionsService', () => {
 
   let service: SessionsService;
   let privateApi: {
+    getSession(sessionId: string): Promise<unknown>;
     persistSession(session: unknown): Promise<void>;
     deleteSession(userId: string, sessionId: string): Promise<void>;
   };
@@ -27,6 +41,7 @@ describe('SessionsService', () => {
       auditService as never,
     );
     privateApi = service as unknown as {
+      getSession(sessionId: string): Promise<unknown>;
       persistSession(session: unknown): Promise<void>;
       deleteSession(userId: string, sessionId: string): Promise<void>;
     };
@@ -122,5 +137,54 @@ describe('SessionsService', () => {
     ).rejects.toThrow('audit persistence unavailable');
 
     expect(deleteSpy).toHaveBeenCalledWith('usr_1', 'sess_next');
+  });
+
+  it('touches the session when the configured touch window has elapsed', async () => {
+    const session = {
+      id: 'sess_current',
+      userId: 'usr_1',
+      status: 'active' as const,
+      mfaLevel: 'none' as const,
+      requiresMfa: false,
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      lastActivity: new Date(Date.now() - 90_000),
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+      absoluteExpiresAt: new Date(Date.now() + 60 * 60_000),
+    };
+
+    jest.spyOn(privateApi, 'getSession').mockResolvedValue(session);
+    const persistSpy = jest
+      .spyOn(privateApi, 'persistSession')
+      .mockImplementation(async () => undefined);
+
+    const result = await service.validateSession('sess_current');
+
+    expect(redisService.ensureAvailable).toHaveBeenCalled();
+    expect(persistSpy).toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({ id: 'sess_current' }));
+  });
+
+  it('avoids rewriting Redis on every request when the touch window has not elapsed', async () => {
+    const session = {
+      id: 'sess_current',
+      userId: 'usr_1',
+      status: 'active' as const,
+      mfaLevel: 'none' as const,
+      requiresMfa: false,
+      createdAt: new Date('2026-03-16T00:00:00.000Z'),
+      lastActivity: new Date(Date.now() - 15_000),
+      expiresAt: new Date(Date.now() + 10 * 60_000),
+      absoluteExpiresAt: new Date(Date.now() + 60 * 60_000),
+    };
+
+    jest.spyOn(privateApi, 'getSession').mockResolvedValue(session);
+    const persistSpy = jest
+      .spyOn(privateApi, 'persistSession')
+      .mockImplementation(async () => undefined);
+
+    await service.validateSession('sess_current');
+
+    expect(redisService.ensureAvailable).toHaveBeenCalled();
+    expect(persistSpy).not.toHaveBeenCalled();
   });
 });

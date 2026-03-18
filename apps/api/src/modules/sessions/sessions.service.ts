@@ -19,7 +19,7 @@ export class SessionsService {
     mfaLevel: MfaLevel = 'none',
     requiresMfa = false,
   ): Promise<ActiveSession> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const now = new Date();
     const session: ActiveSession = {
       id: randomUUID(),
@@ -61,7 +61,7 @@ export class SessionsService {
   }
 
   async validateSession(sessionId: string): Promise<ActiveSession | null> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const session = await this.getSession(sessionId);
 
     if (!session || session.status !== 'active') {
@@ -78,14 +78,17 @@ export class SessionsService {
       return null;
     }
 
-    session.lastActivity = now;
-    session.expiresAt = new Date(now.getTime() + this.getIdleTimeoutMs());
-    await this.persistSession(session);
+    if (this.shouldTouchSession(session, now)) {
+      session.lastActivity = now;
+      session.expiresAt = new Date(now.getTime() + this.getIdleTimeoutMs());
+      await this.persistSession(session);
+    }
+
     return session;
   }
 
   async rotateSession(sessionId: string, context: SessionContext): Promise<ActiveSession> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const currentSession = await this.validateSession(sessionId);
 
     if (!currentSession) {
@@ -114,7 +117,7 @@ export class SessionsService {
   }
 
   async listUserSessions(userId: string): Promise<ActiveSession[]> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const sessionIds = await this.redisService.client.smembers(this.getUserSessionsKey(userId));
 
     if (sessionIds.length === 0) {
@@ -165,7 +168,7 @@ export class SessionsService {
   }
 
   async revokeSession(userId: string, sessionId: string, reason: string): Promise<boolean> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const session = await this.getSession(sessionId);
 
     if (!session || session.userId !== userId) {
@@ -204,7 +207,7 @@ export class SessionsService {
   }
 
   async revokeAllSessions(userId: string, reason: string, exceptSessionId?: string): Promise<number> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const sessionIds = await this.redisService.client.smembers(this.getUserSessionsKey(userId));
     let revokedCount = 0;
 
@@ -223,7 +226,7 @@ export class SessionsService {
   }
 
   async markReauthenticated(sessionId: string): Promise<ActiveSession | null> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const session = await this.validateSession(sessionId);
 
     if (!session) {
@@ -236,7 +239,7 @@ export class SessionsService {
   }
 
   async updateMfaLevel(sessionId: string, mfaLevel: MfaLevel): Promise<ActiveSession | null> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const session = await this.validateSession(sessionId);
 
     if (!session) {
@@ -249,7 +252,7 @@ export class SessionsService {
   }
 
   async completeMfaChallenge(sessionId: string, mfaLevel: MfaLevel): Promise<ActiveSession | null> {
-    this.redisService.assertAvailable();
+    await this.redisService.ensureAvailable();
     const session = await this.validateSession(sessionId);
 
     if (!session) {
@@ -361,5 +364,19 @@ export class SessionsService {
     const minutes =
       this.configService.get<number>('app.session.reauthWindowMinutes', { infer: true }) ?? 5;
     return minutes * 60_000;
+  }
+
+  private getTouchIntervalMs(): number {
+    const seconds =
+      this.configService.get<number>('app.session.touchIntervalSeconds', { infer: true }) ?? 60;
+    return seconds * 1_000;
+  }
+
+  private shouldTouchSession(session: ActiveSession, now: Date): boolean {
+    const touchIntervalMs = this.getTouchIntervalMs();
+    const elapsedSinceLastActivity = now.getTime() - session.lastActivity.getTime();
+    const idleRemainingMs = session.expiresAt.getTime() - now.getTime();
+
+    return elapsedSinceLastActivity >= touchIntervalMs || idleRemainingMs <= touchIntervalMs;
   }
 }

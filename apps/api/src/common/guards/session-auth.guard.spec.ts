@@ -15,6 +15,10 @@ describe('SessionAuthGuard', () => {
     validateSession: jest.fn(),
   };
 
+  const auditService = {
+    record: jest.fn(),
+  };
+
   let guard: SessionAuthGuard;
 
   beforeEach(() => {
@@ -23,6 +27,7 @@ describe('SessionAuthGuard', () => {
       reflector as never,
       configService as never,
       sessionsService as never,
+      auditService as never,
     );
   });
 
@@ -88,6 +93,14 @@ describe('SessionAuthGuard', () => {
     } as unknown as ExecutionContext;
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.mfa.denied',
+        result: 'DENIED',
+        userId: 'usr_1',
+        entityId: 'sess_1',
+      }),
+    );
   });
 
   it('allows explicit pending-MFA routes such as MFA verification', async () => {
@@ -117,5 +130,34 @@ describe('SessionAuthGuard', () => {
     } as unknown as ExecutionContext;
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('audits a missing session cookie before rejecting the request', async () => {
+    const context = {
+      getHandler: jest.fn(),
+      getClass: jest.fn(),
+      switchToHttp: () => ({
+        getRequest: () => ({
+          id: 'req_1',
+          ip: '127.0.0.1',
+          method: 'POST',
+          url: '/api/customers',
+          cookies: {},
+          headers: {},
+        }),
+      }),
+    } as unknown as ExecutionContext;
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'auth.session.denied',
+        result: 'DENIED',
+        metadata: expect.objectContaining({
+          reason: 'session-cookie-missing',
+          path: '/api/customers',
+        }),
+      }),
+    );
   });
 });

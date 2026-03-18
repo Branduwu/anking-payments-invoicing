@@ -6,6 +6,9 @@ dist/
 .env
 .env.local
 .env.*.local
+.validate-local-api.*.log
+api-start.log
+api-start.err
 coverage/
 .turbo/
 .pnpm-store/
