@@ -26,8 +26,13 @@ test.describe('WebAuthn browser flow', () => {
     });
   });
 
-  test('registers, uses and revokes a passkey end-to-end', async ({ page }) => {
+  test('registers, uses and revokes a passkey end-to-end', async ({ page }, testInfo) => {
     await page.goto('/');
+
+    if (testInfo.project.name === 'chromium-loopback') {
+      await page.waitForURL((url) => url.hostname === 'localhost');
+      await expect(page.getByTestId('browser-origin')).toContainText('http://localhost:3100');
+    }
 
     await page.getByTestId('email-input').fill(webauthnLabDemoEmail);
     await page.getByTestId('password-input').fill(webauthnLabDemoPassword);
@@ -72,11 +77,12 @@ test.describe('WebAuthn browser flow', () => {
 
 function resetDemoUser(): void {
   const repoRoot = process.cwd();
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(npmCommand, ['run', 'seed:webauthn-demo'], {
+  const npmExecPath = process.env.npm_execpath;
+  const command = npmExecPath ? process.execPath : process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const args = npmExecPath ? [npmExecPath, 'run', 'seed:webauthn-demo'] : ['run', 'seed:webauthn-demo'];
+  const result = spawnSync(command, args, {
     cwd: repoRoot,
     stdio: 'inherit',
-    shell: process.platform === 'win32',
     env: webauthnLabEnvironment,
   });
 

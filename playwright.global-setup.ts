@@ -5,7 +5,6 @@ const runCommand = (command: string, args: string[], cwd: string): void => {
   const result = spawnSync(command, args, {
     cwd,
     stdio: 'inherit',
-    shell: process.platform === 'win32',
     env: webauthnLabEnvironment,
   });
 
@@ -16,7 +15,9 @@ const runCommand = (command: string, args: string[], cwd: string): void => {
 
 export default async function globalSetup(): Promise<void> {
   const repoRoot = process.cwd();
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const npmExecPath = process.env.npm_execpath;
+  const command = npmExecPath ? process.execPath : process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const args = npmExecPath ? [npmExecPath, 'run', 'seed:webauthn-demo'] : ['run', 'seed:webauthn-demo'];
 
-  runCommand(npmCommand, ['run', 'seed:webauthn-demo'], repoRoot);
+  runCommand(command, args, repoRoot);
 }

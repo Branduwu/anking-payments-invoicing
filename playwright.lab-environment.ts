@@ -30,6 +30,8 @@ export const webauthnLabEnvironment = {
   API_PREFIX: process.env.API_PREFIX ?? 'api',
   PORT: labApiPort,
   VITE_DEFAULT_API_BASE_URL: process.env.VITE_DEFAULT_API_BASE_URL ?? webauthnLabApiBaseUrl,
+  VITE_PREFER_LOCALHOST_FOR_WEBAUTHN:
+    process.env.VITE_PREFER_LOCALHOST_FOR_WEBAUTHN ?? 'true',
   COOKIE_NAME: process.env.COOKIE_NAME ?? 'session',
   COOKIE_SECRET: process.env.COOKIE_SECRET ?? defaultCookieSecret,
   COOKIE_SECURE: process.env.COOKIE_SECURE ?? 'false',

@@ -127,10 +127,48 @@ interface AppState {
 
 const viteEnv = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env;
 
+function getPreferredLoopbackRedirectUrl(): string | null {
+  const shouldPreferLocalhost =
+    viteEnv.VITE_PREFER_LOCALHOST_FOR_WEBAUTHN?.trim().toLowerCase() === 'true';
+
+  if (!shouldPreferLocalhost || window.location.hostname !== '127.0.0.1') {
+    return null;
+  }
+
+  try {
+    const targetUrl = new URL(window.location.href);
+    targetUrl.hostname = 'localhost';
+    return targetUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
 function getDefaultApiBaseUrl(): string {
   const configuredBaseUrl = viteEnv.VITE_DEFAULT_API_BASE_URL?.trim();
   if (configuredBaseUrl) {
-    return configuredBaseUrl.replace(/\/+$/, '');
+    const normalizedConfiguredBaseUrl = configuredBaseUrl.replace(/\/+$/, '');
+
+    try {
+      const configuredUrl = new URL(normalizedConfiguredBaseUrl);
+      const browserHost = window.location.hostname;
+
+      if (
+        isLoopbackHost(browserHost) &&
+        isLoopbackHost(configuredUrl.hostname) &&
+        browserHost !== configuredUrl.hostname
+      ) {
+        const portSegment = configuredUrl.port ? `:${configuredUrl.port}` : '';
+        return `${configuredUrl.protocol}//${browserHost}${portSegment}${configuredUrl.pathname}`.replace(
+          /\/+$/,
+          '',
+        );
+      }
+    } catch {
+      return normalizedConfiguredBaseUrl;
+    }
+
+    return normalizedConfiguredBaseUrl;
   }
 
   const host = window.location.hostname;
@@ -171,6 +209,11 @@ const initialState: AppState = {
   },
   logs: ['Panel listo. Usa una cuenta local preparada por seed o tus propias credenciales.'],
 };
+
+const preferredLoopbackRedirectUrl = getPreferredLoopbackRedirectUrl();
+if (preferredLoopbackRedirectUrl) {
+  window.location.replace(preferredLoopbackRedirectUrl);
+}
 
 const state: AppState = { ...initialState };
 const app = document.querySelector<HTMLDivElement>('#app');
