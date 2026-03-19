@@ -1,11 +1,31 @@
 import { z } from 'zod';
 
+const optionalTrimmedString = () =>
+  z.preprocess((value) => {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    const normalized = value.trim();
+    return normalized.length === 0 ? undefined : normalized;
+  }, z.string().optional());
+
+const optionalTrimmedStringMin = (minimum: number, message?: string) =>
+  z.preprocess((value) => {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    const normalized = value.trim();
+    return normalized.length === 0 ? undefined : normalized;
+  }, z.string().min(minimum, message).optional());
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     APP_NAME: z.string().min(1).default('banking-platform-api'),
-    APP_VERSION: z.string().min(1).optional(),
-    APP_COMMIT_SHA: z.string().min(1).optional(),
+    APP_VERSION: optionalTrimmedStringMin(1),
+    APP_COMMIT_SHA: optionalTrimmedStringMin(1),
     PORT: z.coerce.number().int().positive().default(4000),
     API_PREFIX: z.string().min(1).default('api'),
     CORS_ORIGIN: z
@@ -17,7 +37,7 @@ const envSchema = z
     COOKIE_SECURE: z
       .enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])
       .optional(),
-    CSRF_TRUSTED_ORIGINS: z.string().optional(),
+    CSRF_TRUSTED_ORIGINS: optionalTrimmedString(),
     SESSION_IDLE_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(15),
     SESSION_ABSOLUTE_TIMEOUT_HOURS: z.coerce.number().int().positive().default(8),
     REAUTH_WINDOW_MINUTES: z.coerce.number().int().positive().default(5),
@@ -58,8 +78,8 @@ const envSchema = z
       }),
     REDIS_KEY_PREFIX: z.string().min(1).default('platform'),
     PAC_PROVIDER: z.enum(['mock', 'custom-http']).default('mock'),
-    PAC_BASE_URL: z.string().optional(),
-    PAC_API_KEY: z.string().optional(),
+    PAC_BASE_URL: optionalTrimmedString(),
+    PAC_API_KEY: optionalTrimmedString(),
     PAC_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
     PAC_ALLOW_MOCK_IN_PRODUCTION: z
       .enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])
@@ -67,20 +87,27 @@ const envSchema = z
     AUDIT_FAIL_CLOSED_DEFAULT: z
       .enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])
       .optional(),
-    AUDIT_FAIL_CLOSED_SUCCESS_ACTION_PREFIXES: z.string().optional(),
-    AUDIT_FAIL_CLOSED_FAILURE_ACTION_PREFIXES: z.string().optional(),
-    AUDIT_FAIL_CLOSED_DENIED_ACTION_PREFIXES: z.string().optional(),
-    AUDIT_FAIL_CLOSED_ACTION_PREFIXES: z.string().optional(),
+    AUDIT_FAIL_CLOSED_SUCCESS_ACTION_PREFIXES: optionalTrimmedString(),
+    AUDIT_FAIL_CLOSED_FAILURE_ACTION_PREFIXES: optionalTrimmedString(),
+    AUDIT_FAIL_CLOSED_DENIED_ACTION_PREFIXES: optionalTrimmedString(),
+    AUDIT_FAIL_CLOSED_ACTION_PREFIXES: optionalTrimmedString(),
     HTTP_SLOW_REQUEST_THRESHOLD_MS: z.coerce.number().int().positive().default(1000),
-    METRICS_BEARER_TOKEN: z.string().min(16).optional(),
+    METRICS_BEARER_TOKEN: optionalTrimmedStringMin(16),
     ALLOW_DEGRADED_STARTUP: z
       .enum(['true', 'false', '1', '0', 'yes', 'no', 'on', 'off'])
       .optional(),
-    ADMIN_EMAIL: z.string().email().optional(),
-    ADMIN_PASSWORD: z.string().min(12).optional(),
-    ADMIN_NAME: z.string().min(1).optional(),
-    ADMIN_MFA_TOTP_CODE: z.string().optional(),
-    ADMIN_MFA_RECOVERY_CODE: z.string().optional(),
+    ADMIN_EMAIL: z.preprocess((value) => {
+      if (typeof value !== 'string') {
+        return value;
+      }
+
+      const normalized = value.trim();
+      return normalized.length === 0 ? undefined : normalized;
+    }, z.string().email().optional()),
+    ADMIN_PASSWORD: optionalTrimmedStringMin(12),
+    ADMIN_NAME: optionalTrimmedStringMin(1),
+    ADMIN_MFA_TOTP_CODE: optionalTrimmedString(),
+    ADMIN_MFA_RECOVERY_CODE: optionalTrimmedString(),
   })
   .superRefine((config, ctx) => {
     const cookieSecure =
