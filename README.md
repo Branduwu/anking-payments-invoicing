@@ -109,6 +109,7 @@ Cliente
 |-- scripts/
 |   |-- deploy-migrations.ps1
 |   |-- smoke-test.ps1
+|   |-- setup-workstation.ps1
 |   |-- start-infra.ps1
 |   |-- start-local.ps1
 |   |-- stop-infra.ps1
@@ -155,6 +156,32 @@ La base actual ya deja:
 - E2E browser-based de WebAuthn ejecutable tambien desde CI
 - workflows listos para CI y release controlado
 - runbooks de incidente, revocacion y rotacion de secretos
+- bootstrap de workstation nueva para acelerar onboarding y reducir drift entre PCs
+
+## Bootstrap rapido en PC nueva
+
+Si llegas a una maquina Windows limpia, ya puedes preparar el repo con:
+
+```powershell
+npm run setup:workstation
+```
+
+Si quieres que ademas intente instalar prerequisitos faltantes con `winget` y deje `Playwright` listo:
+
+```powershell
+npm run setup:workstation:full
+```
+
+Ese bootstrap:
+
+- verifica `Git`, `Node.js`, `npm`, `Docker Desktop` y `GitHub CLI`
+- puede instalar faltantes con `winget`
+- crea `.env` desde `.env.example`
+- sincroniza `apps/api/.env`
+- ejecuta `npm ci`
+- genera Prisma Client
+- puede instalar Chromium para `Playwright`
+- deja la maquina lista para `start`, `validate:local` y `webauthn:demo`
 
 La foto detallada de que ya esta implementado, por fase y por modulo, vive en:
 

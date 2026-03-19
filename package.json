@@ -21,6 +21,8 @@
     "webauthn:demo:open": "node ./scripts/run-powershell.mjs ./scripts/start-passkeys-lab.ps1 -OpenBrowser",
     "webauthn:demo:stop": "node ./scripts/run-powershell.mjs ./scripts/stop-passkeys-lab.ps1",
     "start:web": "npm --workspace apps/web run start",
+    "setup:workstation": "node ./scripts/run-powershell.mjs ./scripts/setup-workstation.ps1",
+    "setup:workstation:full": "node ./scripts/run-powershell.mjs ./scripts/setup-workstation.ps1 -InstallPrerequisites -InstallPlaywright -RunVerify",
     "start:local": "node ./scripts/run-powershell.mjs ./scripts/start-local.ps1",
     "infra:up": "node ./scripts/run-powershell.mjs ./scripts/start-infra.ps1",
     "infra:down": "node ./scripts/run-powershell.mjs ./scripts/stop-infra.ps1",

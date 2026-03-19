@@ -26,6 +26,26 @@ Este documento explica como levantar la plataforma localmente, que valida cada s
 
 ## Scripts de trabajo
 
+### `npm run setup:workstation`
+
+Bootstrap para una PC nueva en Windows:
+
+1. verifica `Git`, `Node.js`, `npm`, `Docker Desktop` y `GitHub CLI`
+2. opcionalmente instala prerequisitos faltantes con `winget`
+3. crea `.env` desde `.env.example`
+4. sincroniza `apps/api/.env`
+5. ejecuta `npm ci`
+6. genera Prisma Client
+7. opcionalmente instala Chromium para `Playwright`
+
+Version mas completa:
+
+```powershell
+npm run setup:workstation:full
+```
+
+Esa variante intenta instalar prerequisitos faltantes y deja el repo en mejor estado para correr `verify` y el laboratorio WebAuthn.
+
 ### `npm run infra:up`
 
 Hace esto:

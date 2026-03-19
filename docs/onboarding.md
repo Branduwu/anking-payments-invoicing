@@ -77,6 +77,7 @@ Modulos importantes:
 
 ### Scripts operativos
 
+- `scripts/setup-workstation.ps1`
 - `scripts/start-infra.ps1`
 - `scripts/start-local.ps1`
 - `scripts/validate-local.ps1`
@@ -106,6 +107,22 @@ Haz esto en este orden:
 7. revisar `auth`, `sessions` y `customers`
 
 ## Como levantar el proyecto
+
+### Opcion 0. Bootstrap rapido de una PC nueva
+
+Si estas en una workstation Windows nueva, empieza aqui:
+
+```powershell
+npm run setup:workstation
+```
+
+Si quieres que tambien intente instalar prerequisitos faltantes con `winget` y deje Chromium listo para `Playwright`:
+
+```powershell
+npm run setup:workstation:full
+```
+
+Esto ayuda a reducir drift entre maquinas y acelera onboarding, aunque no reemplaza revisar `.env` cuando uses Neon, Redis remoto o secretos propios.
 
 ### Opcion A. Todo local con Docker
 
